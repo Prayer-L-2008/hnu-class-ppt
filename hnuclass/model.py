@@ -61,6 +61,9 @@ class Problem:
     code_pages: list[CodePage] = field(default_factory=list)
     run_output: str = ""
     tips: str = ""                     # 用例页底部小注
+    user_code: str = ""                # 学生自己上传的代码（可选）
+    code_source: str = ""              # user / ai / ai_fixed
+    code_note: str = ""                # 代码页上的来源说明
 
     # ---------- 便捷属性 ----------
     @property
@@ -97,6 +100,9 @@ class Problem:
             ],
             "run_output": self.run_output,
             "tips": self.tips,
+            "user_code": self.user_code,
+            "code_source": self.code_source,
+            "code_note": self.code_note,
         }
 
     @classmethod
@@ -119,6 +125,9 @@ class Problem:
             code_pages=[CodePage.from_dict(x) for x in d.get("code_pages", [])],
             run_output=str(d.get("run_output", "")),
             tips=str(d.get("tips", "")),
+            user_code=str(d.get("user_code", "")),
+            code_source=str(d.get("code_source", "")),
+            code_note=str(d.get("code_note", "")),
         )
 
 

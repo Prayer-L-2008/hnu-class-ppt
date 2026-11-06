@@ -493,11 +493,27 @@ class Renderer:
             body = c.input.strip("\n")
             return f"{title}：\n\t" + body.replace("\n", "\n\t") if body else f"{title}："
 
-        blocks1 = [BodyBlock(x) for x in case_text("用例1", case1).split("\n")]
-        self.add_body(s, blocks1, 1.85, 1.46, 6.15, 18, 2.6)
+        def fit_case(text, h):
+            """选一个能放下的字号；实在放不下就截断并加省略号。"""
+            limit = h * 72 - 8
+            for sz in (18, 17, 16, 15, 14, 13, 12, 11, 10):
+                if block_height(text, sz, (6.15 - 0.2) * 72) <= limit:
+                    return sz, text.split("\n")
+            sz = 10
+            body = text
+            while len(body) > 24 and block_height(body, sz, (6.15 - 0.2) * 72) > limit:
+                body = body[:-16].rstrip()
+            if body != text:
+                body = body.rstrip() + " …"
+            return sz, body.split("\n")
+
+        t1 = case_text("用例1", case1)
+        sz1, lines1 = fit_case(t1, 2.6)
+        self.add_body(s, [BodyBlock(x) for x in lines1], 1.85, 1.46, 6.15, sz1, 2.6)
         if case2:
-            blocks2 = [BodyBlock(x) for x in case_text("用例2", case2).split("\n")]
-            self.add_body(s, blocks2, 1.85, 4.70, 6.15, 18, 1.95)
+            t2 = case_text("用例2", case2)
+            sz2, lines2 = fit_case(t2, 1.95)
+            self.add_body(s, [BodyBlock(x) for x in lines2], 1.85, 4.70, 6.15, sz2, 1.95)
 
         out1 = (case1.output if case1 else "") or p.run_output
         out2 = (case2.output if case2 else "") or ""
@@ -557,11 +573,35 @@ class Renderer:
         tf.margin_top = Emu(27432)
         tf.margin_bottom = Emu(18288)
         tf.vertical_anchor = MSO_ANCHOR.TOP
+        # 按可用高度选择字号；仍放不下就截断并加省略号
+        width_pt = max(40.0, (w - 0.10) * 72)
+        avail_pt = max(10.0, (h - 0.36) * 72 - 8)
+        fs = 10.5
+        while fs > 7.0:
+            need = sum(max(1, len(wrap_text(ln or " ", fs, width_pt, False, True)))
+                       for ln in lines) * fs * 1.34
+            if need <= avail_pt:
+                break
+            fs -= 0.5
+        # 逐行累计，超出的截断
+        kept: list[str] = []
+        used = 0.0
+        for ln in lines:
+            n = max(1, len(wrap_text(ln or " ", fs, width_pt, False, True)))
+            if used + n * fs * 1.34 > avail_pt:
+                if kept:
+                    kept[-1] = (kept[-1] + " …")[:120]
+                break
+            kept.append(ln)
+            used += n * fs * 1.34
+        if not kept:
+            kept = [lines[0][:80] + " …"] if lines and lines[0] else [""]
+
         first = True
-        for line in lines[:22]:
+        for line in kept:
             pp = _clear_tf(tf) if first else tf.add_paragraph()
             first = False
-            _fill_para(pp, line, 10.5, RGBColor(0xE8, 0xE8, 0xE8), False, MONO)
+            _fill_para(pp, line, fs, RGBColor(0xE8, 0xE8, 0xE8), False, MONO)
 
     # ------------------------------------------------------------------ 总结
     def summary_page(self, deck: Deck) -> None:

@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import os
+import shutil
 import subprocess
 import tempfile
+import uuid
 from dataclasses import dataclass, field
 
 GPP_CANDIDATES = [
@@ -30,13 +32,34 @@ class RunResult:
     compiler: str = ""
 
 
-def compile_and_run(code: str, cases, timeout: int = 6) -> RunResult:
+def _workdir(base: str | None) -> str:
+    """优先在指定目录下建临时目录；系统临时目录不可写时退回当前目录。"""
+    for root in (base, tempfile.gettempdir(), os.path.join(os.getcwd(), ".hnuclass_tmp")):
+        if not root:
+            continue
+        d = os.path.join(root, "hnuclass_" + uuid.uuid4().hex[:10])
+        try:
+            os.makedirs(d, exist_ok=False)
+            probe = os.path.join(d, ".probe")
+            with open(probe, "w", encoding="utf-8") as f:
+                f.write("ok")
+            os.remove(probe)
+            return d
+        except OSError:
+            continue
+    d = os.path.join(os.getcwd(), "hnuclass_" + uuid.uuid4().hex[:10])
+    os.makedirs(d, exist_ok=True)
+    return d
+
+
+def compile_and_run(code: str, cases, timeout: int = 6, workdir: str | None = None) -> RunResult:
     res = RunResult()
     if not code.strip():
         return res
     gpp = find_gpp()
     res.compiler = gpp
-    with tempfile.TemporaryDirectory(prefix="hnuclass_") as d:
+    d = _workdir(workdir)
+    try:
         src = os.path.join(d, "main.cpp")
         exe = os.path.join(d, "main.exe")
         with open(src, "w", encoding="utf-8") as f:
@@ -70,3 +93,5 @@ def compile_and_run(code: str, cases, timeout: int = 6) -> RunResult:
             res.outputs.append(out)
         res.ok = True
         return res
+    finally:
+        shutil.rmtree(d, ignore_errors=True)

@@ -116,8 +116,10 @@ def _build_worker(cfg: dict) -> None:
                 _state["job"]["frac"] = frac
 
         build(job, client, Progress(progress))
+        code_zip = os.path.splitext(job.out)[0] + "_代码.zip"
         with _state_lock:
-            _state["job"].update(state="done", out=job.out, frac=1.0)
+            _state["job"].update(state="done", out=job.out,
+                                 codes=code_zip if os.path.exists(code_zip) else "", frac=1.0)
     except Exception as e:
         with _state_lock:
             _state["job"].update(state="error", error=str(e), trace=traceback.format_exc()[-2000:])
@@ -181,7 +183,9 @@ class Handler(BaseHTTPRequestHandler):
                     return self._json(dict(_state["job"] or {}))
             if path == "/download":
                 with _state_lock:
-                    out = (_state["job"] or {}).get("out")
+                    job = _state["job"] or {}
+                want_code = (q.get("code", ["0"])[0] in ("1", "true"))
+                out = job.get("codes") if want_code else job.get("out")
                 if not out or not os.path.exists(out):
                     return self._json({"error": "文件不存在"}, 404)
                 name = urllib.parse.quote(os.path.basename(out))

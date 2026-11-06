@@ -481,6 +481,15 @@ def parse_problem(page_html: str, assign_id: str, index: str, meta: ProblemRef |
     # 样例：优先用 pre/textarea 成对提取（平台题面就是【样例输入N】+pre）
     samples: list[Case] = []
     pres = doc.xpath("//pre")          # 样例只认 pre，textarea 是填空答案
+    # 样例区在【样例说明/解释/解析】之后就不再有正式样例了，截断避免把解释示例当成样例
+    expl = re.compile(r"【样例\s*\d*\s*(?:说明|解释|解析|分析)】|"
+                      r"样例\s*\d*\s*(?:说明|解释|解析|分析)\s*[:：]")
+    for el in doc.xpath("//p|//div|//span|//td|//li"):
+        txt = (el.text or "").strip()
+        if txt and expl.search(txt):
+            before = {id(x) for x in el.xpath("preceding::pre")}
+            pres = [x for x in pres if id(x) in before]
+            break
     blocks: list[str] = []
     for p in pres:
         val = p.text_content() or p.get("value") or ""
@@ -488,14 +497,20 @@ def parse_problem(page_html: str, assign_id: str, index: str, meta: ProblemRef |
         if val.strip():
             blocks.append(val)
     code_like = re.compile(r"#\s*include|int\s+main|using\s+namespace")
-    non_code = [b for b in blocks if not code_like.search(b)]
+    cjk = re.compile(r"[\u4e00-\u9fff]")
+    non_code = [b for b in blocks if not code_like.search(b) and not cjk.search(b)]
     def _sample_text(v: str) -> str:
         v = v.replace("\xa0", " ")
+        m = re.search(r"【样例\s*\d*\s*(?:说明|解释|解析|分析)】|【(?:评分标准|提示|数据范围)】|"
+                      r"样例\s*\d*\s*(?:说明|解释|解析|分析)\s*[:：]", v)
+        if m:
+            v = v[:m.start()]
         for mark in ("【样例说明】", "【样例解释】", "【评分标准】", "【提示】", "【数据范围】"):
             if mark in v:
                 v = v.split(mark)[0]
         if "#include" in v:
             v = v.split("#include")[0]
+        v = re.sub(r"\n\s*\n+", "\n", v)   # 折叠样例中的空行
         return v.strip("\n").rstrip()
 
     if len(non_code) >= 2:

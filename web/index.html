@@ -73,8 +73,19 @@ button.exp:hover{background:rgba(230,183,41,.12)}
   border-left:3px solid #B01513;border-radius:4px;font-size:13px;line-height:1.65;
   color:#dfeee9;max-height:320px;overflow:auto}
 #pickedTbl{margin-top:10px;font-size:13px}
+.code-box{margin:8px 0 4px;padding:10px 12px;border:1px dashed rgba(215,178,109,.35);
+  border-radius:10px;background:rgba(0,0,0,.18)}
+.code-box .rowline{display:flex;align-items:center;gap:10px;font-size:12px;color:#9fc0b8}
+.code-box textarea{width:100%;height:120px;margin-top:8px;font-family:Consolas,monospace;
+  font-size:12.5px;line-height:1.5;background:#0b1c1e;color:#dff1ea;border:1px solid var(--line);
+  border-radius:8px;padding:8px 10px;resize:vertical}
+.code-box input[type=file]{font-size:12px;color:#9fc0b8}
+.code-tag{display:inline-block;padding:2px 8px;border-radius:999px;font-size:11.5px}
+.code-tag.ok{background:rgba(80,190,140,.16);color:#7fd6ab;border:1px solid rgba(80,190,140,.4)}
+.code-tag.no{background:rgba(255,154,138,.12);color:#ffb3a6;border:1px solid rgba(255,154,138,.4)}
 #pickedTbl th{font-size:12px}
 #pickedTbl td{padding:7px 8px}
+.codebtn{white-space:nowrap;padding:4px 8px;font-size:12px}
 .picked-rm{background:transparent;border:1px solid rgba(255,154,138,.45);color:#ffb3a6;
   padding:4px 10px;font-size:12px;border-radius:7px}
 .picked-rm:hover{background:rgba(255,154,138,.12)}
@@ -126,7 +137,7 @@ button.exp:hover{background:rgba(230,183,41,.12)}
       <div class="hint" id="pickedEmpty" style="margin:8px 0 0">还没有选题。可以在上面勾选；切换作业不会清空这里，可以跨作业继续加。</div>
       <table id="pickedTbl" class="hidden">
         <thead><tr><th style="width:40px">#</th><th style="width:150px">作业</th><th style="width:56px">题号</th>
-          <th style="width:110px">题型</th><th>题目</th><th style="width:64px"></th></tr></thead>
+          <th style="width:110px">题型</th><th>题目</th><th style="width:112px">代码</th><th style="width:64px"></th></tr></thead>
         <tbody></tbody>
       </table>
     </div>
@@ -175,6 +186,7 @@ button.exp:hover{background:rgba(230,183,41,.12)}
     <div class="row">
       <button id="btnBuild">开始生成课件</button>
       <a class="dl hidden" id="download" href="/download">下载 PPTX</a>
+      <a class="dl ghost hidden" id="dlCode" href="/download?code=1">下载代码包</a>
     </div>
     <div class="bar" id="bar"><i></i></div>
     <div id="log"></div>
@@ -308,15 +320,52 @@ function renderPicked() {
   $('pickedTbl').classList.toggle('hidden', n === 0);
   $('pickedEmpty').classList.toggle('hidden', n > 0);
   const tb = $('pickedTbl').querySelector('tbody');
-  tb.innerHTML = state.picked.map((p, i) => `
+  const canCode = k => (k || '') === '编程题';
+  tb.innerHTML = state.picked.map((p, i) => {
+    const has = (p.user_code || '').trim().length > 0;
+    return `
     <tr>
       <td>${i + 1}</td>
       <td>${esc(p.assignment || p.assign_id)}</td>
       <td>${esc(p.index)}</td>
       <td>${esc(p.kind)}</td>
       <td>${esc(p.title)}</td>
+      <td>${canCode(p.kind) ? `<button class="ghost codebtn" data-i="${i}">${has ? '已上传代码' : '上传代码'}</button>` : '<span class="hint">—</span>'}</td>
       <td><button class="picked-rm" data-u="${esc(p.uid)}">移除</button></td>
-    </tr>`).join('');
+    </tr>
+    <tr class="coderow hidden" id="coderow${i}"><td colspan="7">
+      <div class="code-box">
+        <div class="rowline">
+          <span>上传 / 粘贴你的代码（可选）：先用样例在本地跑一遍，通过后 AI 按你的代码讲解。</span>
+          <input type="file" accept=".cpp,.cc,.c,.txt" data-i="${i}">
+        </div>
+        <textarea data-i="${i}" placeholder="// 把 C++ 代码粘贴到这里，或点上面的「选择文件」">${esc(p.user_code || '')}</textarea>
+        <div class="rowline"><span class="hint" id="codestat${i}">${has ? '已填写，生成时会校验' : '不填则完全由 AI 生成正确解法'}</span></div>
+      </div>
+    </td></tr>`;
+  }).join('');
+
+  tb.querySelectorAll('.codebtn').forEach(b => b.onclick = () => {
+    const row = document.getElementById('coderow' + b.dataset.i);
+    if (row) row.classList.toggle('hidden');
+  });
+  tb.querySelectorAll('.code-box textarea').forEach(t => t.oninput = () => {
+    const i = +t.dataset.i;
+    state.picked[i].user_code = t.value;
+    const st = document.getElementById('codestat' + i);
+    if (st) st.textContent = t.value.trim() ? '已填写，生成时会校验' : '不填则完全由 AI 生成正确解法';
+  });
+  tb.querySelectorAll('.code-box input[type=file]').forEach(f => f.onchange = () => {
+    const file = f.files && f.files[0];
+    if (!file) return;
+    const i = +f.dataset.i;
+    const rd = new FileReader();
+    rd.onload = () => {
+      const t = tb.querySelector('textarea[data-i="' + i + '"]');
+      if (t) { t.value = rd.result; t.dispatchEvent(new Event('input')); }
+    };
+    rd.readAsText(file, 'utf-8');
+  });
   tb.querySelectorAll('.picked-rm').forEach(b => b.onclick = () => {
     state.picked = state.picked.filter(x => x.uid !== b.dataset.u);
     renderPicked(); renderProblems();
@@ -470,11 +519,13 @@ $('btnBuild').onclick = async () => {
            name:$('name').value.trim(), student_id:$('sid').value.trim()},
     llm: {base_url:$('baseUrl').value.trim(), api_key:$('apiKey').value.trim(), model: $('model').value === '__custom__' ? $('modelCustom').value.trim() : $('model').value},
     problems: picked.map(p => ({assign_id:p.assign_id, assignment:p.assignment,
-      index:p.index, title:p.title, ptype:p.kind, problem_id:p.problem_id||'', via:p.via||''})),
+      index:p.index, title:p.title, ptype:p.kind, problem_id:p.problem_id||'', via:p.via||'',
+      user_code:(p.kind==='编程题'?(p.user_code||''):'')})),
     out: 'out/小班课件_' + new Date().toISOString().slice(0,10) + '.pptx',
     run_code: true
   };
   $('download').classList.add('hidden');
+  $('dlCode').classList.add('hidden');
   $('log').style.display='block'; $('log').textContent=''; $('bar').style.display='block';
   const r = await api('/api/build', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(cfg)});
   if (r.error) { $('log').textContent = r.error; return; }
@@ -488,6 +539,7 @@ async function pollBuild() {
   $('bar').querySelector('i').style.width = Math.round((s.frac||0)*100) + '%';
   if (s.state === 'done') {
     $('download').classList.remove('hidden');
+    $('dlCode').classList.toggle('hidden', !s.codes);
     $('log').textContent += '\n✅ 生成完成，点击上方按钮下载。';
   } else if (s.state === 'error') {
     $('log').textContent += '\n❌ ' + s.error;

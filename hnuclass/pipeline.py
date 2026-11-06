@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import zipfile
 import re
 import urllib.parse
 import urllib.request
@@ -32,6 +33,7 @@ class ProblemSpec:
     title: str = ""
     problem_id: str = ""
     via: str = ""
+    user_code: str = ""
 
     @classmethod
     def from_dict(cls, d: dict) -> "ProblemSpec":
@@ -43,6 +45,7 @@ class ProblemSpec:
             title=d.get("title", ""),
             problem_id=str(d.get("problem_id", "")),
             via=d.get("via", ""),
+            user_code=str(d.get("user_code", "")),
         )
 
 
@@ -94,6 +97,48 @@ def _download_image(client: CGClient, src: str, dest_dir: str, tag: str) -> str:
         return ""
 
 
+def _samples_pass(code: str, samples, workdir: str | None = None) -> bool:
+    """本地编译并逐用例比对；没有样例时视为无法验证。"""
+    if not code or not samples:
+        return False
+    run = compile_and_run(code, samples, workdir=workdir)
+    if not run.ok or len(run.outputs) < len(samples):
+        return False
+    for n, got in enumerate(run.outputs):
+        exp = (samples[n].output or "").strip().replace("\r", "").rstrip()
+        if not exp:
+            continue
+        if got.strip().replace("\r", "").rstrip() != exp:
+            return False
+    return True
+
+
+
+def _write_code_zip(deck: Deck, out_path: str) -> str:
+    """把 PPT 里编程题的 C++ 代码打包，放在 PPTX 旁边。"""
+    progs = [p for p in deck.problems if p.ptype == "编程题" and (p.code or "").strip()]
+    if not progs:
+        return ""
+    # 只有存在“未上传代码 / 审查未通过改用 AI 解法”的编程题时才需要代码包
+    if all((p.code_source or "") == "user" for p in progs):
+        return ""
+    path = os.path.splitext(out_path)[0] + "_代码.zip"
+    used = set()
+    try:
+        with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as z:
+            for p in progs:
+                base = re.sub(r'[\\/:*?"<>|\r\n]+', "_", f"{p.number}. {p.title}").strip()[:60]
+                name = base + ".cpp"
+                i = 2
+                while name in used:
+                    name = f"{base}({i}).cpp"; i += 1
+                used.add(name)
+                z.writestr(name, p.code)
+    except Exception:
+        return ""
+    return path
+
+
 def build(job: BuildJob, client: CGClient, progress: Progress | None = None) -> str:
     progress = progress or Progress()
     deck = Deck(
@@ -106,6 +151,7 @@ def build(job: BuildJob, client: CGClient, progress: Progress | None = None) -> 
         summary=[],
     )
     total = len(job.problems)
+    workdir = os.path.dirname(os.path.abspath(job.out))
     warnings: list[str] = []
     summary_bits: list[str] = []
 
@@ -136,19 +182,52 @@ def build(job: BuildJob, client: CGClient, progress: Progress | None = None) -> 
                     local.append(got)
             p.images = local
 
+        p.user_code = (spec.user_code or "").strip()
         if job.llm.ready:
             progress(f"[{i+1}/{total}] AI 生成《{p.title}》的思路与逐行讲解…",
                      0.1 + 0.9 * i / total)
             try:
-                res = llm_generate(job.llm, p)
-                p.analysis = res.analysis
-                p.code_pages = res.code_pages
-                p.tips = res.tips
-                p.code = res.solution_code or p.code
-                if res.summary:
-                    summary_bits = res.summary
-                if job.run_code and res.solution_code and p.samples:
-                    run = compile_and_run(res.solution_code, p.samples)
+                used_user = False
+                if p.user_code and p.ptype == "编程题":
+                    if _samples_pass(p.user_code, p.samples, workdir):
+                        from .llm import generate_from_user_code
+                        res = generate_from_user_code(job.llm, p, p.user_code)
+                        p.analysis = res.analysis
+                        p.code_pages = res.code_pages
+                        p.tips = res.tips
+                        if res.summary:
+                            summary_bits = res.summary
+                        if res.correct:
+                            p.code = p.user_code
+                            p.code_source = "user"
+                            p.code_note = "本页讲解依据你提交的代码"
+                            used_user = True
+                        else:
+                            issues = "；".join(res.issues[:2])
+                            if res.fixed_code and _samples_pass(res.fixed_code, p.samples, workdir):
+                                p.code = res.fixed_code
+                                p.code_source = "ai_fixed"
+                                p.code_note = "你提交的代码未完全正确" + (f"（{issues}）" if issues else "") + "，以下为修正版"
+                                used_user = True
+                            else:
+                                warnings.append(f"{p.title} 你提交的代码有问题：{issues or 'AI 判定不正确'}，已改用 AI 解法")
+                    else:
+                        warnings.append(f"{p.title} 你提交的代码未通过样例，已改用 AI 解法")
+                        p.code_note = "你提交的代码未通过样例，本页改用 AI 给出的解法"
+
+                if not used_user:
+                    res = llm_generate(job.llm, p)
+                    p.analysis = res.analysis
+                    p.code_pages = res.code_pages
+                    p.tips = res.tips
+                    p.code = res.solution_code or p.code
+                    if p.code_source != "ai_fixed":
+                        p.code_source = "ai"
+                    if res.summary:
+                        summary_bits = res.summary
+
+                if job.run_code and p.code and p.samples:
+                    run = compile_and_run(p.code, p.samples, workdir=workdir)
                     if run.ok:
                         for n, out in enumerate(run.outputs):
                             if n < len(p.samples):
@@ -156,6 +235,8 @@ def build(job: BuildJob, client: CGClient, progress: Progress | None = None) -> 
                         p.run_output = run.outputs[0] if run.outputs else ""
                     elif run.stderr:
                         warnings.append(f"{p.title} 参考代码运行失败：{run.stderr.splitlines()[0][:120]}")
+                if p.code_note and p.code_pages:
+                    p.code_pages[0].note = p.code_note
             except Exception as e:
                 warnings.append(f"{p.title} AI 生成失败：{e}")
         else:
@@ -180,6 +261,15 @@ def build(job: BuildJob, client: CGClient, progress: Progress | None = None) -> 
 
     progress("渲染 PPTX…", 0.97)
     render_deck(deck, job.out, job.template)
+    _write_code_zip(deck, job.out)
+    try:
+        from .layoutcheck import audit
+        layout_issues = audit(job.out, fix=True)
+        warnings.extend(layout_issues[:6])
+        if layout_issues:
+            progress(f"排版自检：自动调整了 {len(layout_issues)} 处文本框")
+    except Exception as e:
+        warnings.append(f"排版自检失败：{e}")
     for w in warnings:
         progress("⚠ " + w)
     progress(f"完成：{job.out}", 1.0)

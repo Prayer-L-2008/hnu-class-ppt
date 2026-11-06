@@ -1,6 +1,6 @@
 {
   "name": "dsh-hnu-class-ppt",
-  "version": "1.6.0",
+  "version": "1.7.3",
   "description": "湖南大学程序设计小班课 PPT 生成器（DSH 插件薄壳，调用本机 hnuclass 引擎）",
   "type": "module",
   "main": "index.js",
@@ -11,7 +11,12 @@
     "index.js",
     "README.md"
   ],
-  "keywords": ["dsh-plugin", "hnu", "pptx", "cg"],
+  "keywords": [
+    "dsh-plugin",
+    "hnu",
+    "pptx",
+    "cg"
+  ],
   "license": "MIT",
   "dependencies": {
     "@deepseek-ai/dsh-tools": "0.2.2-rc.1"

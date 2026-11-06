@@ -64,7 +64,7 @@ def chat(cfg: LLMConfig, messages: list[dict], json_mode: bool = True) -> str:
         "model": cfg.model,
         "messages": messages,
         "temperature": cfg.temperature,
-        "max_tokens": 4096,
+        "max_tokens": 8192,
     }
     if json_mode:
         payload["response_format"] = {"type": "json_object"}
@@ -75,24 +75,107 @@ def chat(cfg: LLMConfig, messages: list[dict], json_mode: bool = True) -> str:
             raise
         payload.pop("response_format", None)
         data = _post(url, payload, cfg.api_key, cfg.timeout)
+    # 推理型模型常把 token 花在思考上，长度截断时自动加倍重试一次
     try:
-        return data["choices"][0]["message"]["content"]
+        fr = data["choices"][0].get("finish_reason")
+    except Exception:
+        fr = None
+    if fr == "length" and payload.get("max_tokens", 0) < 16384:
+        payload["max_tokens"] = 16384
+        try:
+            data = _post(url, payload, cfg.api_key, cfg.timeout)
+        except RuntimeError:
+            pass
+    try:
+        msg = data["choices"][0]["message"]
     except Exception:
         raise RuntimeError(f"无法解析 LLM 返回：{json.dumps(data, ensure_ascii=False)[:500]}")
+    content = msg.get("content")
+    if isinstance(content, list):  # 多模态分段
+        content = "".join(str(x.get("text", "")) if isinstance(x, dict) else str(x) for x in content)
+    if not (content or "").strip():
+        # 部分推理模型把正文放在 reasoning_content；再兜底 text 字段
+        content = msg.get("reasoning_content") or data.get("text") or ""
+    if not (content or "").strip():
+        raise RuntimeError(f"LLM 返回内容为空：{json.dumps(data, ensure_ascii=False)[:400]}")
+    return content
+
+
+def _balanced_json(text: str) -> str:
+    """从任意文本里截出第一个完整的 JSON 对象（正确处理字符串内的括号/转义）。"""
+    start = text.find("{")
+    if start < 0:
+        return ""
+    depth = 0
+    in_str = False
+    esc = False
+    for i in range(start, len(text)):
+        ch = text[i]
+        if in_str:
+            if esc:
+                esc = False
+            elif ch == "\\":
+                esc = True
+            elif ch == '"':
+                in_str = False
+            continue
+        if ch == '"':
+            in_str = True
+        elif ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth == 0:
+                return text[start:i + 1]
+    return ""
 
 
 def parse_json(text: str) -> dict:
-    text = text.strip()
-    m = re.search(r"```(?:json)?\s*(.*?)```", text, re.S)
+    text = (text or "").strip().lstrip("\ufeff")
+    m = re.search(r"```(?:json|JSON)?\s*([\s\S]*?)(?:```|$)", text)
     if m:
         text = m.group(1).strip()
-    try:
-        return json.loads(text)
-    except json.JSONDecodeError:
-        s, e = text.find("{"), text.rfind("}")
-        if s >= 0 and e > s:
-            return json.loads(text[s:e + 1])
-        raise
+    for candidate in (text, _balanced_json(text)):
+        if not candidate:
+            continue
+        try:
+            return json.loads(candidate)
+        except json.JSONDecodeError:
+            fixed = re.sub(r",\s*([}\]])", r"\1", candidate)  # 去掉尾逗号
+            try:
+                return json.loads(fixed)
+            except json.JSONDecodeError:
+                continue
+    raise ValueError(f"LLM 返回的不是合法 JSON（前 200 字）：{text[:200]!r}")
+
+
+def _json_chat(cfg: LLMConfig, messages: list[dict], tries: int = 3) -> dict:
+    """调用并解析 JSON；失败时换一种更强硬的方式重试，最多 3 次。"""
+    last: Exception | None = None
+    original = list(messages)
+    for n in range(tries):
+        raw = chat(cfg, messages, json_mode=True)
+        try:
+            return parse_json(raw)
+        except Exception as e:  # noqa: BLE001
+            last = e
+        if n == 0:
+            # 第二次：把原文附回去，明确要求“只输出 JSON”
+            messages = original + [
+                {"role": "assistant", "content": raw[:4000]},
+                {"role": "user", "content": "上面的输出不是合法 JSON。请只输出一个 JSON 对象，"
+                                            "不要 markdown 代码块、不要解释文字、不要思考过程，"
+                                            "从 { 开始、以 } 结束。"},
+            ]
+        else:
+            # 第三次：丢掉之前的上下文，重建最短对话，避免被长推理带偏
+            user = next((m["content"] for m in reversed(original) if m.get("role") == "user"), "")
+            messages = [
+                {"role": "system", "content": "你是 JSON 生成器。只输出一个合法 JSON 对象，"
+                                              "不要输出任何解释、思考过程或 markdown 代码块。"},
+                {"role": "user", "content": "请完成下面的任务，并只返回 JSON：\n" + user},
+            ]
+    raise last  # type: ignore[misc]
 
 
 SYSTEM = (
@@ -141,9 +224,8 @@ def generate(cfg: LLMConfig, p: Problem) -> LLMResult:
 - tips 必须是一句有信息量的话；
 - summary 恰好 3 条，每条约 30~60 字，面向“学习方法/易错点/举一反三”。
 """
-    raw = chat(cfg, [{"role": "system", "content": SYSTEM},
-                     {"role": "user", "content": user}])
-    data = parse_json(raw)
+    data = _json_chat(cfg, [{"role": "system", "content": SYSTEM},
+                            {"role": "user", "content": user}])
     res = LLMResult()
     res.analysis = [str(x).strip() for x in data.get("analysis", []) if str(x).strip()]
     code = str(data.get("solution_code", "")).strip()
@@ -165,6 +247,72 @@ def generate(cfg: LLMConfig, p: Problem) -> LLMResult:
     return res
 
 
+@dataclass
+class UserCodeResult:
+    correct: bool = True
+    issues: list[str] = field(default_factory=list)
+    analysis: list[str] = field(default_factory=list)
+    code_pages: list[CodePage] = field(default_factory=list)
+    tips: str = ""
+    summary: list[str] = field(default_factory=list)
+    fixed_code: str = ""
+
+
+def generate_from_user_code(cfg: LLMConfig, p: Problem, code: str) -> UserCodeResult:
+    """校验学生代码，并按学生代码（或修正版）生成讲解。"""
+    user = f"""{_problem_digest(p)}
+
+学生提交的代码：
+```cpp
+{code[:7000]}
+```
+
+请完成两件事：先判断这份代码是否正确（能否通过样例、边界情况、复杂度是否合理），再据此写讲解。
+严格返回如下 JSON：
+{{
+  "correct": true,
+  "issues": ["如果代码有问题，这里逐条列出，15~40字；没有问题就空数组"],
+  "analysis": ["思路分析第1段", "第2段", "..."],
+  "code_pages": [
+    {{"heading": "这一页的小标题，可为空", "bullets": ["逐行讲解条目1", "条目2"], "note": "右上角红色注记，可为空"}}
+  ],
+  "tips": "写在用例页底部的一句提醒，20字以内",
+  "summary": ["总结第1点", "第2点", "第3点"],
+  "fixed_code": "correct=false 时给出修正后的完整 C++17 程序；correct=true 时留空字符串"
+}}
+
+要求：
+- correct=false 时：issues 说清问题，fixed_code 必须是可直接编译运行的完整程序，code_pages 讲解修正版；
+- correct=true 时：fixed_code 留空，code_pages 严格按学生代码的结构、变量名和语句顺序讲解，不要改写成另一份代码；
+- analysis 3~6 段，每段 60~140 字，先点评学生思路，再讲算法、关键步骤、复杂度与易错点；
+- code_pages 1~3 页，每页 4~8 条，每条 15~45 字；
+- summary 恰好 3 条，每条约 30~60 字。
+"""
+    data = _json_chat(cfg, [{"role": "system", "content": SYSTEM},
+                            {"role": "user", "content": user}])
+    res = UserCodeResult()
+    res.correct = bool(data.get("correct", True))
+    res.issues = [str(x).strip() for x in (data.get("issues") or []) if str(x).strip()]
+    res.analysis = [str(x).strip() for x in (data.get("analysis") or []) if str(x).strip()]
+    for cp in data.get("code_pages", []) or []:
+        bullets = [str(b).strip() for b in cp.get("bullets", []) if str(b).strip()]
+        if bullets:
+            res.code_pages.append(CodePage(
+                heading=str(cp.get("heading", "")).strip(),
+                bullets=bullets,
+                note=str(cp.get("note", "")).strip(),
+            ))
+    res.tips = str(data.get("tips", "")).strip()
+    res.summary = [str(x).strip() for x in (data.get("summary") or []) if str(x).strip()]
+    fixed = str(data.get("fixed_code", "")).strip()
+    fixed = re.sub(r"^```[\w+]*\s*", "", fixed)
+    fixed = re.sub(r"\s*```$", "", fixed)
+    res.fixed_code = fixed
+    if not res.analysis:
+        raise RuntimeError("LLM 没有返回 analysis 字段")
+    return res
+
+
 def summarize_deck(cfg: LLMConfig, deck) -> list[str]:
     """为整份课件生成三条总结（若单题生成时已有总结，取并集）。"""
     names = "、".join(p.title for p in deck.problems)
@@ -173,7 +321,6 @@ def summarize_deck(cfg: LLMConfig, deck) -> list[str]:
         "请写 3 条课堂总结，每条 30~60 字，分别侧重：方法共性、常见错误、学习建议。\n"
         '严格返回 JSON：{"summary": ["...", "...", "..."]}'
     )
-    raw = chat(cfg, [{"role": "system", "content": SYSTEM},
-                     {"role": "user", "content": user}])
-    data = parse_json(raw)
+    data = _json_chat(cfg, [{"role": "system", "content": SYSTEM},
+                            {"role": "user", "content": user}])
     return [str(x).strip() for x in data.get("summary", []) if str(x).strip()][:3]
