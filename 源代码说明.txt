@@ -1,0 +1,28 @@
+﻿湖大程序设计小班课课件生成器 v1.6 —— 源代码
+==========================================
+
+运行（Python 3.13）：
+    pip install -r requirements.txt
+    python -m hnuclass.cli gui       # 浏览器界面
+    python -m hnuclass.cli demo      # 生成示例课件
+    python -m hnuclass.cli build --config examples/job.example.json
+
+目录：
+  hnuclass/       核心引擎：cg 抓取、题目解析、LLM、g++ 运行、PPT 渲染、GUI/CLI
+  web/            本地 Web 界面
+  plugin/         DSH 插件薄壳（可选）
+  app_entry.py    桌面版入口（tkinter 控制窗 + 本地服务）
+  template.pptx   版式模板
+  examples/       配置示例
+
+单文件安装程序（本目录 native_installer.cpp）：
+  - 安装程序 exe = 编译后的 stub + app.zip + 8 字节偏移量（追加在文件尾）
+  - 安装时把内嵌 zip 释放到临时目录，用 PowerShell Expand-Archive 解压到目标
+  - uninstall.exe（native_uninstall.cpp）复制自身到 TEMP 后递归删除安装目录
+
+重新打包（需 MinGW g++ 与 Windows SDK 的 mt.exe）：
+  g++ -O2 -mwindows -static native_uninstall.cpp -o uninstall.exe -lshell32 -lole32
+  mt -manifest build/app.manifest -outputresource:uninstall.exe;#1
+  g++ -O2 -mwindows -static native_installer.cpp   -o setup_stub.exe -lshell32 -lole32
+  mt -manifest build/app.manifest -outputresource:setup_stub.exe;#1
+  再把 setup_stub.exe + app.zip + 8 字节偏移拼成安装程序.exe

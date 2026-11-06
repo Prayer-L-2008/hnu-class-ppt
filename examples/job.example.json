@@ -1,0 +1,34 @@
+{
+  "meta": {
+    "session": "第五次",
+    "group": "第二组 3 号",
+    "klass": "计科 2304",
+    "name": "覃禹嘉",
+    "student_id": "202308010423"
+  },
+  "problems": [
+    {
+      "assign_id": "12345",
+      "index": "1",
+      "assignment": "函数(强化)",
+      "ptype": "填空题",
+      "title": "汉诺塔"
+    },
+    {
+      "assign_id": "12345",
+      "index": "2",
+      "assignment": "指针",
+      "ptype": "程序补全",
+      "title": "数组奇偶排列"
+    }
+  ],
+  "llm": {
+    "base_url": "https://api.deepseek.com/v1",
+    "api_key": "sk-你的Key",
+    "model": "deepseek-chat",
+    "temperature": 0.3
+  },
+  "template": "template.pptx",
+  "out": "out/第五次小班课.pptx",
+  "run_code": true
+}

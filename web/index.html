@@ -1,0 +1,504 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>湖大程序设计 · 小班课课件生成器</title>
+<style>
+:root{
+  --ink:#0d1f22; --paper:#f4f1ea; --green:#14504f; --green2:#0d3b3a;
+  --red:#b01513; --gold:#d7b26d; --line:rgba(255,255,255,.14);
+}
+*{box-sizing:border-box}
+body{margin:0;font-family:"Microsoft YaHei","PingFang SC",system-ui,sans-serif;
+  background:radial-gradient(1200px 600px at 70% 0%,#1c6663 0%,#0e3b3c 45%,#092a2b 100%);
+  color:#eef3f1;min-height:100vh}
+.wrap{max-width:1100px;margin:0 auto;padding:28px 22px 60px}
+header{display:flex;align-items:flex-end;justify-content:space-between;gap:20px;
+  border-bottom:1px solid var(--line);padding-bottom:16px;margin-bottom:22px}
+h1{margin:0;font-size:26px;letter-spacing:.5px}
+h1 small{display:block;font-weight:400;font-size:13px;color:#9fc3c0;margin-top:6px;letter-spacing:2px}
+.badge{font-size:12px;padding:6px 12px;border:1px solid var(--line);border-radius:999px;color:#bfe0dc}
+.card{background:rgba(255,255,255,.055);border:1px solid var(--line);border-radius:14px;
+  padding:20px 22px;margin-bottom:18px;backdrop-filter:blur(6px)}
+.card h2{margin:0 0 14px;font-size:16px;display:flex;align-items:center;gap:10px;font-weight:600}
+.num{width:26px;height:26px;border-radius:8px;background:var(--red);display:grid;place-items:center;font-size:13px}
+.row{display:flex;gap:12px;flex-wrap:wrap;align-items:center}
+label.f{display:flex;flex-direction:column;gap:6px;font-size:12px;color:#9fc3c0;flex:1;min-width:150px}
+input,select,textarea{background:rgba(0,0,0,.22);border:1px solid var(--line);color:#fff;
+  border-radius:9px;padding:10px 12px;font-size:14px;font-family:inherit;outline:none}
+input:focus,select:focus,textarea:focus{border-color:var(--gold)}
+select option{background:#0e3b3c;color:#fff}
+button{background:var(--red);color:#fff;border:0;border-radius:9px;padding:11px 20px;
+  font-size:14px;font-family:inherit;cursor:pointer;transition:.15s;font-weight:600}
+button:hover{filter:brightness(1.12)}
+button.ghost{background:transparent;border:1px solid var(--line);color:#dfe;font-weight:400}
+button:disabled{opacity:.45;cursor:not-allowed}
+.keyrow{display:flex;gap:6px;align-items:center}
+.keyrow input{flex:1;min-width:0}
+button.mini{padding:4px 9px;font-size:12px;background:transparent;border:1px solid rgba(255,255,255,.28);
+  color:#cfded9;border-radius:6px;cursor:pointer;white-space:nowrap}
+button.mini:hover{border-color:#B01513;color:#fff}
+table{width:100%;border-collapse:collapse;margin-top:12px;font-size:14px}
+#tbl td,#tbl th{vertical-align:top}
+#tbl td{padding-top:14px;padding-bottom:14px}
+th,td{text-align:left;padding:9px 8px;border-bottom:1px solid var(--line)}
+th{font-size:12px;color:#9fc3c0;font-weight:500}
+td input[type=checkbox]{width:16px;height:16px;accent-color:var(--red)}
+.pill{display:inline-block;font-size:11px;padding:3px 8px;border-radius:6px;background:rgba(215,178,109,.16);
+  color:var(--gold);border:1px solid rgba(215,178,109,.35)}
+#log{background:#071d1e;border:1px solid var(--line);border-radius:10px;padding:12px 14px;
+  font-family:Consolas,monospace;font-size:12.5px;line-height:1.6;max-height:220px;overflow:auto;
+  white-space:pre-wrap;color:#bfe0dc;margin-top:14px;display:none}
+.bar{height:6px;background:rgba(255,255,255,.1);border-radius:99px;overflow:hidden;margin-top:14px;display:none}
+.bar i{display:block;height:100%;width:0;background:linear-gradient(90deg,var(--red),var(--gold));transition:.3s}
+.hint{font-size:12.5px;color:#93b7b4;line-height:1.7;margin-top:10px}
+.ok{color:#7fe0b0}.err{color:#ff9a8a}
+a.ext{flex:0 0 auto;align-self:flex-end;margin-bottom:2px;font-size:13px;color:var(--gold);
+  border:1px solid rgba(215,178,109,.45);border-radius:9px;padding:9px 14px;white-space:nowrap;transition:.15s}
+a.ext:hover{background:rgba(215,178,109,.14)}
+a.dl{display:inline-block;margin-top:14px;color:#0d1f22;background:var(--gold);padding:11px 20px;
+  border-radius:9px;text-decoration:none;font-weight:700}
+.hidden{display:none!important}
+.picked-box{margin-top:16px;border:1px solid var(--line);border-radius:12px;padding:12px 14px;background:rgba(0,0,0,.14)}
+.picked-head{display:flex;align-items:center;gap:10px}
+.picked-head b{font-size:14px;color:#e6f4f1}
+.picked-head .pill{margin-left:2px}
+.picked-head button{margin-left:auto;padding:6px 12px;font-size:12px}
+.ptitle{display:inline-block;max-width:92%;vertical-align:top}
+button.exp{margin-left:8px;padding:2px 8px;font-size:12px;background:transparent;
+  border:1px solid rgba(230,183,41,.55);color:#e6b729;border-radius:6px;cursor:pointer}
+button.exp:hover{background:rgba(230,183,41,.12)}
+.pdetail{white-space:pre-wrap;margin-top:9px;padding:10px 12px;background:rgba(0,0,0,.22);
+  border-left:3px solid #B01513;border-radius:4px;font-size:13px;line-height:1.65;
+  color:#dfeee9;max-height:320px;overflow:auto}
+#pickedTbl{margin-top:10px;font-size:13px}
+#pickedTbl th{font-size:12px}
+#pickedTbl td{padding:7px 8px}
+.picked-rm{background:transparent;border:1px solid rgba(255,154,138,.45);color:#ffb3a6;
+  padding:4px 10px;font-size:12px;border-radius:7px}
+.picked-rm:hover{background:rgba(255,154,138,.12)}
+.cover-preview{margin-top:16px;border:1px dashed rgba(215,178,109,.35);border-radius:12px;
+  padding:14px 18px;background:linear-gradient(135deg,rgba(20,80,79,.55),rgba(13,59,58,.55))}
+.cover-preview .cp-title{font-size:11px;letter-spacing:2px;color:#9fc3c0;margin-bottom:8px}
+.cover-preview .cp-big{font-size:20px;font-weight:700;margin-bottom:8px}
+.cover-preview .cp-line{font-size:14px;color:#e8f2ef;line-height:1.9}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>小班课课件生成器<small>HNU · PROGRAMMING TUTORIAL DECK</small></h1>
+    <div class="badge" id="loginBadge">未登录</div>
+  </header>
+
+  <div class="card">
+    <h2><span class="num">1</span>登录 CG 平台</h2>
+    <div class="row">
+      <button id="btnLogin">打开浏览器登录</button>
+      <span class="hint" style="margin:0">会弹出一个独立的 Chrome/Edge 窗口，请在里面输入账号、密码和验证码；程序只读取登录状态，不保存密码。登录成功后本页会自动变绿。</span>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2><span class="num">2</span>选择作业与题目</h2>
+    <div class="row">
+      <label class="f">课程<select id="course"><option value="">先登录后加载</option></select></label>
+      <label class="f">作业<select id="assign"><option value="">选择课程后加载</option></select></label>
+      <button class="ghost" id="btnLoad">加载题目</button>
+      <button class="ghost" id="btnManual">手动添加</button>
+    </div>
+    <div id="manual" class="row hidden" style="margin-top:12px">
+      <label class="f">作业 ID<input id="mAssign" placeholder="assignID，例如 12345"></label>
+      <label class="f">题号 proNum<input id="mIndex" placeholder="例如 3"></label>
+      <label class="f">题型<select id="mKind"><option>编程题</option><option>填空题</option><option>选择题</option><option>程序补全</option></select></label>
+      <button class="ghost" id="btnAddManual">添加</button>
+    </div>
+    <table id="tbl" class="hidden">
+      <thead><tr><th style="width:42px"></th><th style="width:64px">题号</th><th style="width:120px">题型</th><th>题目</th></tr></thead>
+      <tbody></tbody>
+    </table>
+    <div class="picked-box">
+      <div class="picked-head">
+        <b>已选题目</b><span class="pill" id="pickedCount">0 道</span>
+        <button class="ghost" id="btnClearPicked">清空</button>
+      </div>
+      <div class="hint" id="pickedEmpty" style="margin:8px 0 0">还没有选题。可以在上面勾选；切换作业不会清空这里，可以跨作业继续加。</div>
+      <table id="pickedTbl" class="hidden">
+        <thead><tr><th style="width:40px">#</th><th style="width:150px">作业</th><th style="width:56px">题号</th>
+          <th style="width:110px">题型</th><th>题目</th><th style="width:64px"></th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+    <div class="hint" id="pickHint">勾选后进入「已选题目」；题型用于课件里的表述，可在下拉框里改。</div>
+  </div>
+
+  <div class="card">
+    <h2><span class="num">3</span>个人信息（显示在封面）</h2>
+    <div class="row">
+      <label class="f">第几次<input id="session" value="第五次" placeholder="第五次"></label>
+      <label class="f">第几组<input id="zu" value="第二组" placeholder="第二组"></label>
+      <label class="f">第几号<input id="hao" value="3 号" placeholder="3 号"></label>
+    </div>
+    <div class="row" style="margin-top:12px">
+      <label class="f">班级<input id="klass" value="计科 2304" placeholder="计科 2304"></label>
+      <label class="f">姓名<input id="name" value="覃禹嘉" placeholder="姓名"></label>
+      <label class="f">学号<input id="sid" value="202308010423" placeholder="202308010423"></label>
+    </div>
+    <div class="cover-preview">
+      <div class="cp-title">封面预览</div>
+      <div class="cp-big" id="cpTitle">第五次小班课</div>
+      <div class="cp-line" id="cpGroup">第二组 3 号</div>
+      <div class="cp-line" id="cpClass">计科 2304　　覃禹嘉</div>
+      <div class="cp-line" id="cpSid">学号：202308010423</div>
+    </div>
+    <div class="hint">这里填的内容会原样写进封面，也会记在本机浏览器里，下次打开自动带出。</div>
+  </div>
+
+  <div class="card">
+    <h2><span class="num">4</span>AI 接口（用于生成思路分析与逐行讲解）</h2>
+    <div class="row">
+      <label class="f">Base URL<input id="baseUrl" value="https://api.deepseek.com/v1"></label>
+      <label class="f">API Key<span class="keyrow"><input id="apiKey" type="password" placeholder="sk-…（填一次自动保存）" autocomplete="off"><button type="button" id="clearKey" class="mini hidden">清除</button></span></label>
+      <label class="f">模型<select id="model" title="填 Key 后自动列出可用模型">
+        <option value="deepseek-chat">deepseek-chat</option>
+        <option value="deepseek-reasoner">deepseek-reasoner</option>
+        <option value="__custom__">自定义…</option>
+      </select><input id="modelCustom" class="hidden" placeholder="输入模型名，例如 qwen-plus"></label>
+      <a class="ext" href="https://platform.deepseek.com/" target="_blank" rel="noopener">DeepSeek API 官网 ↗</a>
+    </div>
+    <div class="hint" id="modelHint">兼容 OpenAI 协议的服务都可以用（DeepSeek、通义、Kimi、本地 Ollama 等）。填上 Key 会自动拉取可用模型；不填也能生成，但“思路分析/代码讲解”会是待补充的占位内容。</div>
+  </div>
+
+  <div class="card">
+    <h2><span class="num">5</span>生成</h2>
+    <div class="row">
+      <button id="btnBuild">开始生成课件</button>
+      <a class="dl hidden" id="download" href="/download">下载 PPTX</a>
+    </div>
+    <div class="bar" id="bar"><i></i></div>
+    <div id="log"></div>
+  </div>
+</div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const state = { pool: [], picked: [], hasKey: false };
+const KEY_TYPES = ['编程题','填空题','选择题','程序补全','接口编程题','判断题'];
+function uidOf(p){ return [p.assign_id, p.via || '', p.problem_id || '', p.index, p.title].join('|'); }
+function pickedOf(p){ return state.picked.find(x => x.uid === uidOf(p)); }
+
+async function api(path, opt) {
+  const r = await fetch(path, opt);
+  const t = await r.text();
+  try { return JSON.parse(t); } catch { return { error: t }; }
+}
+
+async function refreshStatus() {
+  const s = await api('/api/status');
+  const b = $('loginBadge');
+  if (s.logged_in) {
+    b.textContent = '已登录' + (s.user ? ' · ' + s.user : '');
+    b.style.color = '#7fe0b0'; b.style.borderColor = 'rgba(127,224,176,.5)';
+    loadCourses();
+  } else if (s.login === 'waiting') {
+    b.textContent = '等待浏览器登录…'; b.style.color = '#d7b26d';
+  } else {
+    b.textContent = s.message || '未登录'; b.style.color = '';
+  }
+}
+
+async function loadCourses() {
+  const d = await api('/api/courses');
+  if (!d.items) return;
+  const sel = $('course');
+  if (sel.dataset.loaded === '1') return;
+  sel.innerHTML = '<option value="">选择课程</option>' +
+    d.items.map(x => `<option value="${x.id}">${esc(x.name)}</option>`).join('');
+  sel.dataset.loaded = '1';
+}
+
+function esc(s){return String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))}
+
+$('btnLogin').onclick = async () => {
+  $('btnLogin').disabled = true;
+  await api('/api/login', {method:'POST', headers:{'Content-Type':'application/json'}, body:'{}'});
+  const timer = setInterval(async () => {
+    const s = await api('/api/status');
+    if (s.logged_in) { clearInterval(timer); $('btnLogin').disabled = false; refreshStatus(); }
+    if (s.login === 'error') { clearInterval(timer); $('btnLogin').disabled = false;
+      $('loginBadge').textContent = s.message; $('loginBadge').style.color = '#ff9a8a'; }
+  }, 2000);
+};
+
+$('course').onchange = async () => {
+  const cid = $('course').value;
+  const sel = $('assign');
+  if (!cid) { sel.innerHTML = '<option value="">选择课程后加载</option>'; return; }
+  sel.innerHTML = '<option>加载中…</option>';
+  const d = await api('/api/assignments?course=' + encodeURIComponent(cid));
+  sel.innerHTML = '<option value="">选择作业</option>' +
+    (d.items || []).map(x => `<option value="${x.id}">${esc(x.name)}</option>`).join('');
+};
+
+// 选完作业自动拉题目，省一次点击
+$('assign').onchange = () => {
+  const aid = $('assign').value;
+  if (aid) { $('btnLoad').click(); }
+  else { $('tbl').classList.add('hidden'); state.pool = []; }
+};
+
+$('btnLoad').onclick = async () => {
+  const aid = $('assign').value;
+  if (!aid) { alert('请先选择作业'); return; }
+  const tbody = $('tbl').querySelector('tbody');
+  tbody.innerHTML = '<tr><td colspan="4">加载中…</td></tr>';
+  $('tbl').classList.remove('hidden');
+  const d = await api('/api/problems?assign=' + encodeURIComponent(aid));
+  const assignment = $('assign').selectedOptions[0]?.textContent || '';
+  state.pool = (d.items || []).map(x => ({...x, assign_id: aid, assignment}));
+  renderProblems();
+};
+
+function renderProblems() {
+  const tbody = $('tbl').querySelector('tbody');
+  if (!state.pool.length) { tbody.innerHTML = '<tr><td colspan="4">没有解析到题目，可用“手动添加”。</td></tr>'; return; }
+  tbody.innerHTML = state.pool.map((p, i) => {
+    const hit = pickedOf(p);
+    const kind = hit ? hit.kind : p.kind;
+    return `
+    <tr>
+      <td><input type="checkbox" data-i="${i}" ${hit ? 'checked' : ''}></td>
+      <td>${esc(p.index)}</td>
+      <td><select data-k="${i}">${KEY_TYPES
+        .map(k=>`<option ${k===kind?'selected':''}>${k}</option>`).join('')}</select></td>
+      <td><span class="ptitle">${esc(p.title)}</span>${p.detail
+        ? `<button class="exp" data-e="${i}">展开题面</button>
+           <div class="pdetail hidden">${esc(p.detail)}</div>` : ''}</td>
+    </tr>`;
+  }).join('');
+  tbody.querySelectorAll('input[type=checkbox]').forEach(cb => cb.onchange = () => {
+    const i = +cb.dataset.i, p = state.pool[i];
+    const sel = tbody.querySelector(`select[data-k="${i}"]`);
+    const uid = uidOf(p);
+    if (cb.checked) {
+      if (!state.picked.some(x => x.uid === uid))
+        state.picked.push({...p, uid, kind: sel ? sel.value : p.kind});
+    } else {
+      state.picked = state.picked.filter(x => x.uid !== uid);
+    }
+    renderPicked();
+  });
+  tbody.querySelectorAll('button.exp').forEach(b => b.onclick = () => {
+    const box = b.nextElementSibling;
+    const open = box.classList.toggle('hidden') === false;
+    b.textContent = open ? '收起题面' : '展开题面';
+  });
+  tbody.querySelectorAll('select[data-k]').forEach(s => s.onchange = () => {
+    const p = state.pool[+s.dataset.k];
+    p.kind = s.value;
+    const hit = pickedOf(p);
+    if (hit) { hit.kind = s.value; renderPicked(); }
+  });
+}
+
+function renderPicked() {
+  const n = state.picked.length;
+  $('pickedCount').textContent = n + ' 道';
+  $('pickedTbl').classList.toggle('hidden', n === 0);
+  $('pickedEmpty').classList.toggle('hidden', n > 0);
+  const tb = $('pickedTbl').querySelector('tbody');
+  tb.innerHTML = state.picked.map((p, i) => `
+    <tr>
+      <td>${i + 1}</td>
+      <td>${esc(p.assignment || p.assign_id)}</td>
+      <td>${esc(p.index)}</td>
+      <td>${esc(p.kind)}</td>
+      <td>${esc(p.title)}</td>
+      <td><button class="picked-rm" data-u="${esc(p.uid)}">移除</button></td>
+    </tr>`).join('');
+  tb.querySelectorAll('.picked-rm').forEach(b => b.onclick = () => {
+    state.picked = state.picked.filter(x => x.uid !== b.dataset.u);
+    renderPicked(); renderProblems();
+  });
+}
+
+$('btnClearPicked').onclick = () => {
+  if (!state.picked.length) return;
+  if (!confirm('清空已选的 ' + state.picked.length + ' 道题？')) return;
+  state.picked = []; renderPicked(); renderProblems();
+};
+
+$('btnManual').onclick = () => $('manual').classList.toggle('hidden');
+$('btnAddManual').onclick = () => {
+  if (!$('mAssign').value || !$('mIndex').value) { alert('请填写作业 ID 和题号'); return; }
+  const p = {index:$('mIndex').value, title:'（手动添加，抓取后自动识别）',
+    kind:$('mKind').value, assign_id:$('mAssign').value, assignment:'手动添加', via:''};
+  p.uid = uidOf(p);
+  if (state.picked.some(x => x.uid === p.uid)) { alert('这道题已经加过了'); return; }
+  state.picked.push(p);
+  renderPicked();
+};
+
+const PROFILE_KEY = 'hnuclass.profile.v1';
+
+function groupText() {
+  const zu = $('zu').value.trim();
+  const hao = $('hao').value.trim();
+  return [zu, hao].filter(Boolean).join(' ');
+}
+
+function readProfile() {
+  return {
+    session: $('session').value.trim(),
+    zu: $('zu').value.trim(),
+    hao: $('hao').value.trim(),
+    klass: $('klass').value.trim(),
+    name: $('name').value.trim(),
+    sid: $('sid').value.trim(),
+  };
+}
+
+function refreshCover() {
+  const p = readProfile();
+  const session = p.session || '第 N 次';
+  $('cpTitle').textContent = /小班课$/.test(session) ? session : session + '小班课';
+  $('cpGroup').textContent = groupText() || '第几组 第几号';
+  $('cpClass').textContent = (p.klass || '班级') + '　　' + (p.name || '姓名');
+  $('cpSid').textContent = '学号：' + (p.sid || '学号');
+  try { localStorage.setItem(PROFILE_KEY, JSON.stringify(p)); } catch (e) {}
+}
+
+['session','zu','hao','klass','name','sid'].forEach(id => {
+  $(id).addEventListener('input', refreshCover);
+});
+
+(function loadProfile() {
+  let saved = null;
+  try { saved = JSON.parse(localStorage.getItem(PROFILE_KEY) || 'null'); } catch (e) {}
+  if (saved && typeof saved === 'object') {
+    ['session','zu','hao','klass','name','sid'].forEach(id => {
+      if (typeof saved[id] === 'string' && saved[id]) $(id).value = saved[id];
+    });
+  }
+  refreshCover();
+  loadSettings();
+})();
+
+let _modelTimer = null;
+async function fetchModels(){
+  const key = $('apiKey').value.trim();
+  if (!key && !state.hasKey) return;
+  $('modelHint').textContent = '正在获取可用模型…';
+  const d = await api('/api/models', {method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({base_url:$('baseUrl').value.trim(), api_key:key})});
+  if (d.ok && d.models && d.models.length) {
+    const sel = $('model'), cur = sel.value;
+    sel.innerHTML = d.models.map(m => `<option value="${esc(m)}">${esc(m)}</option>`).join('')
+      + '<option value="__custom__">自定义…</option>';
+    sel.value = d.models.indexOf(cur) >= 0 ? cur : d.models[0];
+    $('modelHint').textContent = '已获取 ' + d.models.length + ' 个可用模型：' + d.models.join(' / ');
+    saveSettings(sel.value === '__custom__' ? $('modelCustom').value.trim() : sel.value);
+  } else {
+    $('modelHint').textContent = '获取模型失败：' + (d.error || '未知错误');
+  }
+}
+async function saveSettings(model){
+  const body = {base_url: $('baseUrl').value.trim(), model: model || ''};
+  const key = $('apiKey').value.trim();
+  if (key) body.api_key = key;
+  const d = await api('/api/settings', {method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify(body)});
+  if (d && d.has_key) { state.hasKey = true; $('clearKey').classList.remove('hidden'); }
+  return d;
+}
+
+async function loadSettings(){
+  let d = {};
+  try { d = await api('/api/settings'); } catch (e) { return; }
+  if (d.base_url) $('baseUrl').value = d.base_url;
+  if (d.model) {
+    if (![...$('model').options].some(o => o.value === d.model)) {
+      $('model').insertAdjacentHTML('afterbegin',
+        `<option value="${esc(d.model)}">${esc(d.model)}</option>`);
+    }
+    $('model').value = d.model;
+  }
+  if (d.has_key) {
+    state.hasKey = true;
+    $('apiKey').placeholder = '已保存，留空即使用';
+    $('clearKey').classList.remove('hidden');
+    $('modelHint').textContent = '已保存上次的 API Key（加密存在本机）。留空沿用，直接输入则替换。';
+    setTimeout(fetchModels, 600);
+  }
+}
+
+$('clearKey').onclick = async () => {
+  await api('/api/settings', {method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({api_key: ''})});
+  state.hasKey = false;
+  $('apiKey').value = '';
+  $('apiKey').placeholder = 'sk-…（填一次自动保存）';
+  $('clearKey').classList.add('hidden');
+  $('modelHint').textContent = '已清除保存的 API Key。';
+};
+
+$('model').addEventListener('change', () => {
+  const custom = $('model').value === '__custom__';
+  $('modelCustom').classList.toggle('hidden', !custom);
+  if (custom) $('modelCustom').focus();
+  else $('modelCustom').value = '';
+});
+
+$('apiKey').addEventListener('input', () => { clearTimeout(_modelTimer); _modelTimer = setTimeout(fetchModels, 700); });
+$('apiKey').addEventListener('blur', () => {
+  const key = $('apiKey').value.trim();
+  if (key) { saveSettings($('model').value === '__custom__' ? $('modelCustom').value.trim() : $('model').value); fetchModels(); }
+});
+$('baseUrl').addEventListener('change', () => {
+  saveSettings($('model').value === '__custom__' ? $('modelCustom').value.trim() : $('model').value);
+  if ($('apiKey').value.trim() || state.hasKey) fetchModels();
+});
+
+$('btnBuild').onclick = async () => {
+  const picked = state.picked;
+  if (!picked.length) { alert('请先在「已选题目」里加入至少一道题'); return; }
+  if (!$('name').value.trim()) { alert('请填写姓名'); $('name').focus(); return; }
+  refreshCover();
+  const cfg = {
+    meta: {session:$('session').value.trim(), group:groupText(), klass:$('klass').value.trim(),
+           name:$('name').value.trim(), student_id:$('sid').value.trim()},
+    llm: {base_url:$('baseUrl').value.trim(), api_key:$('apiKey').value.trim(), model: $('model').value === '__custom__' ? $('modelCustom').value.trim() : $('model').value},
+    problems: picked.map(p => ({assign_id:p.assign_id, assignment:p.assignment,
+      index:p.index, title:p.title, ptype:p.kind, problem_id:p.problem_id||'', via:p.via||''})),
+    out: 'out/小班课件_' + new Date().toISOString().slice(0,10) + '.pptx',
+    run_code: true
+  };
+  $('download').classList.add('hidden');
+  $('log').style.display='block'; $('log').textContent=''; $('bar').style.display='block';
+  const r = await api('/api/build', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(cfg)});
+  if (r.error) { $('log').textContent = r.error; return; }
+  pollBuild();
+};
+
+async function pollBuild() {
+  const s = await api('/api/build/status');
+  $('log').textContent = (s.log||[]).join('\n');
+  $('log').scrollTop = 1e9;
+  $('bar').querySelector('i').style.width = Math.round((s.frac||0)*100) + '%';
+  if (s.state === 'done') {
+    $('download').classList.remove('hidden');
+    $('log').textContent += '\n✅ 生成完成，点击上方按钮下载。';
+  } else if (s.state === 'error') {
+    $('log').textContent += '\n❌ ' + s.error;
+  } else {
+    setTimeout(pollBuild, 1200);
+  }
+}
+
+renderPicked();
+refreshStatus();
+setInterval(refreshStatus, 5000);
+</script>
+</body>
+</html>
