@@ -114,6 +114,12 @@ def cmd_demo(args) -> int:
     return 0
 
 
+def cmd_desktop(args) -> int:
+    from .desktop import main as desktop_main
+    desktop_main()
+    return 0
+
+
 def cmd_gui(args) -> int:
     from .gui import serve
 
@@ -159,6 +165,9 @@ def main(argv=None) -> int:
     p.add_argument("--out", default="")
     _add_meta_args(p)
     p.set_defaults(func=cmd_demo)
+
+    p = sub.add_parser("desktop", help="启动独立桌面界面")
+    p.set_defaults(func=cmd_desktop)
 
     p = sub.add_parser("gui", help="启动本地图形界面")
     p.add_argument("--host", default="127.0.0.1")

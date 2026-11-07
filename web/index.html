@@ -282,7 +282,7 @@ function renderProblems() {
     <tr>
       <td><input type="checkbox" data-i="${i}" ${hit ? 'checked' : ''}></td>
       <td>${esc(p.index)}</td>
-      <td><select data-k="${i}">${KEY_TYPES
+      <td><select data-k="${i}">${(KEY_TYPES.includes(p.kind)?KEY_TYPES:[p.kind,...KEY_TYPES])
         .map(k=>`<option ${k===kind?'selected':''}>${k}</option>`).join('')}</select></td>
       <td><span class="ptitle">${esc(p.title)}</span>${p.detail
         ? `<button class="exp" data-e="${i}">展开题面</button>

@@ -57,6 +57,24 @@ class Resp:
     url: str
     text: str
     headers: dict = field(default_factory=dict)
+    content: bytes = b""
+
+
+
+@dataclass
+class Submission:
+    problem_id: str
+    score: float
+    max_score: float
+    when: str
+    filename: str
+    code: str
+    tests_total: int = 0
+    tests_ok: int = 0
+
+    @property
+    def full(self) -> bool:
+        return self.max_score > 0 and self.score + 1e-6 >= self.max_score
 
 
 class CGClient:
@@ -90,10 +108,10 @@ class CGClient:
         try:
             with opener.open(req, timeout=self.timeout) as r:
                 raw = r.read()
-                resp = Resp(r.status, r.geturl(), raw.decode("utf-8", "replace"), dict(r.headers))
+                resp = Resp(r.status, r.geturl(), raw.decode("utf-8", "replace"), dict(r.headers), raw)
         except urllib.error.HTTPError as e:
             raw = e.read()
-            resp = Resp(e.code, e.geturl(), raw.decode("utf-8", "replace"), dict(e.headers))
+            resp = Resp(e.code, e.geturl(), raw.decode("utf-8", "replace"), dict(e.headers), raw)
         for k, v in resp.headers.items():
             if k.lower() == "set-cookie":
                 sc = SimpleCookie()
@@ -288,6 +306,62 @@ class CGClient:
                 add_row(row, "")
         return out
 
+
+    # ------------------------------------------------------------- 提交记录
+    def submission(self, assign_id: str, problem_id: str) -> "Submission | None":
+        """取该题最近一次提交（平台的作业页只暴露最近一次源码下载）。"""
+        if not problem_id:
+            return None
+        r = self.get(f"/assignment/index.jsp?assignID={assign_id}")
+        doc = LH.fromstring(r.text)
+        rows = doc.xpath('//table[contains(@class,"table-striped")]//tr')
+        row = None
+        for tr in rows:
+            for a in tr.xpath('.//a[contains(@href,"judgeDetailsRedirect.jsp")]'):
+                if f"problemID={problem_id}" in (a.get("href") or ""):
+                    row = tr
+                    break
+            if row is not None:
+                break
+        if row is None:
+            return None
+        text = " ".join(row.text_content().split())
+        m_score = re.search(r"得分[:：]\s*([\d.]+)", text)
+        m_time = re.search(r"最后一次提交时间[:：]\s*([\d\-: ]+)", text)
+        tds = row.xpath("./td")
+        max_score = 0.0
+        if len(tds) >= 2:
+            m_max = re.search(r"([\d.]+)", tds[1].text_content() or "")
+            if m_max:
+                try:
+                    max_score = float(m_max.group(1))
+                except ValueError:
+                    max_score = 0.0
+        link = next((a.get("href") for a in row.xpath('.//a[contains(@href,"downloadFile")]')), "")
+        tests_total = len(re.findall(r"测试数据\s*\d+", text))
+        tests_ok = len(re.findall(r"测试数据\s*\d+\s*完全正确", text))
+        code = ""
+        if link:
+            raw = self.get(link).content
+            for enc in ("utf-8", "gb18030"):
+                try:
+                    code = raw.decode(enc)
+                    break
+                except UnicodeDecodeError:
+                    continue
+        if not (m_score or link):
+            return None
+        try:
+            score = float(m_score.group(1)) if m_score else 0.0
+        except ValueError:
+            score = 0.0
+        return Submission(
+            problem_id=problem_id, score=score, max_score=max_score,
+            when=(m_time.group(1).strip() if m_time else ""),
+            filename=(link.split("filename=")[-1][:24] if link else ""),
+            code=code.strip(), tests_total=tests_total, tests_ok=tests_ok,
+        )
+
     def problem_html(self, assign_id: str, index: str, problem_id: str = "", via: str = "") -> str:
         pid = problem_id
         # hash 型题号走 problemContent；纯数字（在线评测题）走 programList
@@ -334,7 +408,7 @@ def _kind_label(s: str) -> str:
         return "接口编程题"
     if "填空" in s:
         return "填空题"
-    if "选择" in s:
+    if "选择" in s or "单选" in s or "多选" in s:
         return "选择题"
     if "判断" in s:
         return "判断题"

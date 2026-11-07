@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""桌面入口：后台起本地服务，前台一个小控制窗（打开页面 / 退出）。"""
+"""桌面入口：默认启动独立桌面界面；--web 为旧的本地网页模式。"""
 from __future__ import annotations
 
 import os
@@ -17,7 +17,7 @@ def _fatal(msg: str) -> None:
         print(msg)
 
 
-def main() -> None:
+def _dpi() -> None:
     if os.name == "nt":
         try:
             import ctypes
@@ -25,6 +25,9 @@ def main() -> None:
         except Exception:  # noqa: BLE001
             pass
 
+
+def web_main() -> None:
+    """旧的浏览器模式：后台起本地服务 + 控制窗。"""
     from hnuclass.gui import serve
 
     state: dict[str, str] = {}
@@ -71,14 +74,11 @@ def main() -> None:
     box = tk.Frame(root, bg="#123f3a")
     box.pack(pady=6)
 
-    def open_page() -> None:
-        webbrowser.open(url)
-
     def quit_app() -> None:
         root.destroy()
         os._exit(0)
 
-    tk.Button(box, text="打开页面", command=open_page, width=12,
+    tk.Button(box, text="打开页面", command=lambda: webbrowser.open(url), width=12,
               font=("Microsoft YaHei UI", 10), bg="#B01513", fg="white",
               activebackground="#8f100f", activeforeground="white",
               relief="flat", cursor="hand2").pack(side="left", padx=8)
@@ -90,6 +90,15 @@ def main() -> None:
     root.protocol("WM_DELETE_WINDOW", quit_app)
     threading.Timer(0.8, lambda: webbrowser.open(url)).start()
     root.mainloop()
+
+
+def main() -> None:
+    _dpi()
+    if "--web" in sys.argv[1:]:
+        web_main()
+        return
+    from hnuclass.desktop import main as desktop_main
+    desktop_main()
 
 
 if __name__ == "__main__":

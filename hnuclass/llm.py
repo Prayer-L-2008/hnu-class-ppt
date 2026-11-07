@@ -179,10 +179,36 @@ def _json_chat(cfg: LLMConfig, messages: list[dict], tries: int = 3) -> dict:
 
 
 SYSTEM = (
-    "你是湖南大学《程序设计》课程的小班课助教，负责把一道在线评测题讲清楚。"
-    "你的读者是大一/大二学生，讲解要具体、口语化、循序渐进，避免空话。"
+    "你是湖南大学《程序设计》课程的小班课助教，讲题时必须全程使用第一人称“我”，"
+    "就像我本人在台上复盘自己做这道题的过程（例如“我先……”“我在这里发现……”“我踩过一个坑”）。"
+    "禁止使用“我们”“你”“同学们”“大家”“作者”等称呼，也不要写成教程或说明书口吻。"
+    "讲解要具体、口语化、循序渐进，避免空话。"
     "所有输出必须是合法 JSON，不要输出 JSON 以外的任何文字。"
 )
+
+
+def _fp_text(v):
+    """把讲解文字统一成第一人称。"""
+    if not isinstance(v, str):
+        return v
+    for a, b in (("我们", "我"), ("咱们", "我"), ("同学们", "我"),
+                 ("大家", "我"), ("作者", "我"), ("你", "我")):
+        v = v.replace(a, b)
+    return v
+
+
+def _fp_result(res):
+    try:
+        res.analysis = [_fp_text(x) for x in (res.analysis or [])]
+        res.tips = _fp_text(res.tips)
+        res.summary = [_fp_text(x) for x in (res.summary or [])]
+        for cp in (res.code_pages or []):
+            cp.heading = _fp_text(cp.heading)
+            cp.note = _fp_text(cp.note)
+            cp.bullets = [_fp_text(x) for x in (cp.bullets or [])]
+    except Exception:
+        pass
+    return res
 
 
 def _problem_digest(p: Problem) -> str:
@@ -244,7 +270,7 @@ def generate(cfg: LLMConfig, p: Problem) -> LLMResult:
     res.summary = [str(x).strip() for x in data.get("summary", []) if str(x).strip()]
     if not res.analysis:
         raise RuntimeError("LLM 没有返回 analysis 字段")
-    return res
+    return _fp_result(res)
 
 
 @dataclass
@@ -258,8 +284,13 @@ class UserCodeResult:
     fixed_code: str = ""
 
 
-def generate_from_user_code(cfg: LLMConfig, p: Problem, code: str) -> UserCodeResult:
-    """校验学生代码，并按学生代码（或修正版）生成讲解。"""
+def generate_from_user_code(cfg: LLMConfig, p: Problem, code: str,
+                            force_correct: bool = False) -> UserCodeResult:
+    """校验学生代码，并按学生代码（或修正版）生成讲解。
+
+    force_correct=True 表示这份代码已在本地通过全部公开样例，要求 AI 按正确代码讲解，
+    不再判错（避免 AI 误判导致满分代码被改成“修正版”）。
+    """
     user = f"""{_problem_digest(p)}
 
 学生提交的代码：
@@ -268,6 +299,7 @@ def generate_from_user_code(cfg: LLMConfig, p: Problem, code: str) -> UserCodeRe
 ```
 
 请完成两件事：先判断这份代码是否正确（能否通过样例、边界情况、复杂度是否合理），再据此写讲解。
+<<EXTRA>>
 严格返回如下 JSON：
 {{
   "correct": true,
@@ -288,10 +320,14 @@ def generate_from_user_code(cfg: LLMConfig, p: Problem, code: str) -> UserCodeRe
 - code_pages 1~3 页，每页 4~8 条，每条 15~45 字；
 - summary 恰好 3 条，每条约 30~60 字。
 """
+    extra = ("这份代码已经在本地通过该题的全部公开样例，请视为正确代码，"
+             "correct 必须为 true，issues 留空，fixed_code 留空，讲解严格按这份代码写。"
+             if force_correct else "")
+    user = user.replace("<<EXTRA>>", extra)
     data = _json_chat(cfg, [{"role": "system", "content": SYSTEM},
                             {"role": "user", "content": user}])
     res = UserCodeResult()
-    res.correct = bool(data.get("correct", True))
+    res.correct = True if force_correct else bool(data.get("correct", True))
     res.issues = [str(x).strip() for x in (data.get("issues") or []) if str(x).strip()]
     res.analysis = [str(x).strip() for x in (data.get("analysis") or []) if str(x).strip()]
     for cp in data.get("code_pages", []) or []:
@@ -310,7 +346,7 @@ def generate_from_user_code(cfg: LLMConfig, p: Problem, code: str) -> UserCodeRe
     res.fixed_code = fixed
     if not res.analysis:
         raise RuntimeError("LLM 没有返回 analysis 字段")
-    return res
+    return _fp_result(res)
 
 
 def summarize_deck(cfg: LLMConfig, deck) -> list[str]:
@@ -323,4 +359,4 @@ def summarize_deck(cfg: LLMConfig, deck) -> list[str]:
     )
     data = _json_chat(cfg, [{"role": "system", "content": SYSTEM},
                             {"role": "user", "content": user}])
-    return [str(x).strip() for x in data.get("summary", []) if str(x).strip()][:3]
+    return [_fp_text(str(x).strip()) for x in data.get("summary", []) if str(x).strip()][:3]

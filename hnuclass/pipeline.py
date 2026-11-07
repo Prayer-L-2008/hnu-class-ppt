@@ -191,7 +191,8 @@ def build(job: BuildJob, client: CGClient, progress: Progress | None = None) -> 
                 if p.user_code and p.ptype == "编程题":
                     if _samples_pass(p.user_code, p.samples, workdir):
                         from .llm import generate_from_user_code
-                        res = generate_from_user_code(job.llm, p, p.user_code)
+                        res = generate_from_user_code(job.llm, p, p.user_code, force_correct=True)
+                        res.correct = True
                         p.analysis = res.analysis
                         p.code_pages = res.code_pages
                         p.tips = res.tips
@@ -200,20 +201,53 @@ def build(job: BuildJob, client: CGClient, progress: Progress | None = None) -> 
                         if res.correct:
                             p.code = p.user_code
                             p.code_source = "user"
-                            p.code_note = "本页讲解依据你提交的代码"
+                            p.code_note = "本页讲解依据我提交的代码"
                             used_user = True
                         else:
                             issues = "；".join(res.issues[:2])
                             if res.fixed_code and _samples_pass(res.fixed_code, p.samples, workdir):
                                 p.code = res.fixed_code
                                 p.code_source = "ai_fixed"
-                                p.code_note = "你提交的代码未完全正确" + (f"（{issues}）" if issues else "") + "，以下为修正版"
+                                p.code_note = "我提交的代码未完全正确" + (f"（{issues}）" if issues else "") + "，以下为修正版"
                                 used_user = True
                             else:
                                 warnings.append(f"{p.title} 你提交的代码有问题：{issues or 'AI 判定不正确'}，已改用 AI 解法")
                     else:
                         warnings.append(f"{p.title} 你提交的代码未通过样例，已改用 AI 解法")
-                        p.code_note = "你提交的代码未通过样例，本页改用 AI 给出的解法"
+                        p.code_note = "我提交的代码未通过样例，本页改用 AI 给出的解法"
+
+                if not used_user and p.ptype == "编程题" and p.problem_id:
+                    sub = None
+                    try:
+                        sub = client.submission(spec.assign_id, p.problem_id)
+                    except Exception as e:
+                        warnings.append(f"{p.title} 读取提交记录失败：{e}")
+                    if sub and sub.code and sub.full and _samples_pass(sub.code, p.samples, workdir):
+                        from .llm import generate_from_user_code
+                        progress(f"[{i+1}/{total}] 使用提交记录中的满分代码讲解《{p.title}》…",
+                                 0.1 + 0.9 * i / total)
+                        res2 = generate_from_user_code(job.llm, p, sub.code, force_correct=True)
+                        res2.correct = True
+                        p.analysis = res2.analysis
+                        p.code_pages = res2.code_pages
+                        p.tips = res2.tips
+                        if res2.summary:
+                            summary_bits = res2.summary
+                        if res2.correct:
+                            p.code = sub.code
+                            p.code_source = "submission"
+                            p.code_note = (f"本页讲解依据我提交记录中的满分代码"
+                                           f"（{sub.when}，{sub.score:g} 分）")
+                            used_user = True
+                        elif res2.fixed_code and _samples_pass(res2.fixed_code, p.samples, workdir):
+                            p.code = res2.fixed_code
+                            p.code_source = "ai_fixed"
+                            p.code_note = "提交记录中的代码未完全正确，以下为修正版"
+                            used_user = True
+                    elif sub:
+                        warnings.append(
+                            f"{p.title} 提交记录最近一次 {sub.score:g}/{sub.max_score:g} 分，"
+                            "不是满分，已改用 AI 解法")
 
                 if not used_user:
                     res = llm_generate(job.llm, p)
@@ -246,9 +280,9 @@ def build(job: BuildJob, client: CGClient, progress: Progress | None = None) -> 
 
         deck.problems.append(p)
 
-    if job.llm.ready and not summary_bits:
+    if job.llm.ready:
         try:
-            summary_bits = summarize_deck(job.llm, deck)
+            summary_bits = summarize_deck(job.llm, deck) or summary_bits
         except Exception as e:
             warnings.append(f"总结生成失败：{e}")
     if not summary_bits:
