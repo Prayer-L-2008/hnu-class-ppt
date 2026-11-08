@@ -499,6 +499,51 @@ def _main_node(doc):
     return best if best is not None else doc.body
 
 
+
+_CODE_HINT = re.compile(r"[{};]|#\s*include|^\s{2,}|\b(int|long|double|char|bool|for|while|if|else|return|cin|cout|scanf|printf|vector|unordered_set)\b")
+
+
+def _reflow(text: str) -> str:
+    """把被行内标签打散的题面重新拼回段落（短行占比高时才处理）。"""
+    if not text:
+        return ""
+    lines = [ln.rstrip() for ln in text.replace("\r", "").splitlines()]
+    body = [ln for ln in lines if ln.strip()]
+    short = sum(1 for ln in body if len(ln.strip()) <= 12)
+    if len(lines) < 6 or short < max(5, len(lines) // 3):
+        return text.strip()
+    out: list[str] = []
+    buf = ""
+    for ln in lines:
+        t = ln.strip()
+        if not t:
+            if buf:
+                out.append(buf)
+                buf = ""
+            if out and out[-1] != "":
+                out.append("")
+            continue
+        if _CODE_HINT.search(t):
+            if buf:
+                out.append(buf)
+                buf = ""
+            out.append(ln)
+            continue
+        if not buf:
+            buf = t
+        else:
+            joiner = "" if (re.search(r"[\u4e00-\u9fff，。；：、！？）】]$", buf)
+                              or re.match(r"^[，。；：、！？）】]", t)) else " "
+            buf += joiner + t
+    if buf:
+        out.append(buf)
+    while out and not out[0].strip():
+        out.pop(0)
+    while out and not out[-1].strip():
+        out.pop()
+    return "\n".join(out).strip()
+
+
 def parse_problem(page_html: str, assign_id: str, index: str, meta: ProblemRef | None = None):
     """把题目页（problemContent.jsp）解析成 Problem 字段。"""
     from .model import Case, Problem
@@ -542,11 +587,11 @@ def parse_problem(page_html: str, assign_id: str, index: str, meta: ProblemRef |
             return ""
         start = a[1]
         end = b[0] if b and b[0] > start else len(raw)
-        return raw[start:end].strip()
+        return _reflow(raw[start:end].strip())
 
     if d is None and i is None and o is None:
         cut = re.split(r"【?样例(?:输入|输出)\s*\d*】?", raw)[0]
-        description, input_form, output_form = cut.strip()[:2500], "", ""
+        description, input_form, output_form = _reflow(cut.strip())[:2500], "", ""
     else:
         description = seg(d, i or o)
         input_form = seg(i, o)

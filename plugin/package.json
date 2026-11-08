@@ -1,6 +1,6 @@
 {
   "name": "dsh-hnu-class-ppt",
-  "version": "1.8.3",
+  "version": "1.9.4",
   "description": "湖南大学程序设计小班课 PPT 生成器（DSH 插件薄壳，调用本机 hnuclass 引擎）",
   "type": "module",
   "main": "index.js",

@@ -363,7 +363,20 @@ class Renderer:
                 continue
             pages[-1].append(b)
             used += h
-        return [p for p in pages if p]
+        pages = [p for p in pages if p]
+        # 不要把 “输入/输出/解释” 单独甩到下一页，至少带上上一行上下文
+        for i in range(1, len(pages)):
+            for _ in range(4):
+                if not pages[i] or len(pages[i - 1]) <= 1:
+                    break
+                head = (pages[i][0].text or "")
+                if not re.match(r"^\s*(输入|输出|解释|说明)\s*[:：]", head):
+                    break
+                moved = pages[i - 1].pop()
+                pages[i].insert(0, moved)
+                if re.match(r"^\s*示例", moved.text or ""):
+                    break
+        return pages
 
     def _pick_size(self, blocks, width_in, height_in, sizes=(18, 17, 16, 15, 14)) -> float:
         for sz in sizes:
@@ -406,11 +419,27 @@ class Renderer:
         height = 7.15 - top
         size = self._pick_size(blocks, width, height)
         pages = self._paginate(blocks, width, height, size)
+        # 避免最后一页只剩一两行：略降字号把尾巴并回上一页
+        if len(pages) > 1 and self._page_used(pages[-1], width, size) < height * 72 * 0.35:
+            for s2 in range(size - 1, 11, -1):
+                cand = self._paginate(blocks, width, height, s2)
+                if len(cand) < len(pages):
+                    pages, size = cand, s2
+                    break
         for i, page in enumerate(pages):
             s = self.new_slide()
             suffix = f"（P{i+1}）" if len(pages) > 1 else ""
             self.add_title(s, f"{p.number}、问题-{p.display_name}{suffix}")
             self.add_body(s, page, 1.04, top, width, size, height)
+
+    @staticmethod
+    def _page_used(page, width_in: float, size: float) -> float:
+        from .textfit import block_height
+        width_pt = (width_in - 0.2) * 72
+        total = 0.0
+        for b in page:
+            total += block_height(b.text or " ", b.size or size, width_pt, b.bold, b.mono)
+        return total
 
     def _add_picture_fit(self, slide, path: str, l: float, t: float, w: float, h: float) -> None:
         from PIL import Image

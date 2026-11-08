@@ -246,6 +246,7 @@ def generate(cfg: LLMConfig, p: Problem) -> LLMResult:
 要求：
 - analysis 3~6 段，每段 60~140 字，讲清算法选择、状态/变量含义、关键步骤、复杂度与易错点；
 - code_pages 1~3 页；每页 4~8 条，每条 15~45 字，按代码从上到下的顺序讲，不要贴大段代码；
+- 不要逐行解释 #include、using namespace、return 0、大括号、变量声明这类模板代码；只讲关键变量/数据结构/核心循环/边界处理与易错点，短代码 3~5 条即可；
 - 如果是填空题或程序补全题，要在讲解里明确指出每个空为什么这样填；
 - tips 必须是一句有信息量的话；
 - summary 恰好 3 条，每条约 30~60 字，面向“学习方法/易错点/举一反三”。
@@ -318,11 +319,15 @@ def generate_from_user_code(cfg: LLMConfig, p: Problem, code: str,
 - correct=true 时：fixed_code 留空，code_pages 严格按学生代码的结构、变量名和语句顺序讲解，不要改写成另一份代码；
 - analysis 3~6 段，每段 60~140 字，先点评学生思路，再讲算法、关键步骤、复杂度与易错点；
 - code_pages 1~3 页，每页 4~8 条，每条 15~45 字；
+- 不要讲 #include、using namespace、return 0、大括号这类模板代码；只讲关键变量、核心循环、边界与易错点；
 - summary 恰好 3 条，每条约 30~60 字。
 """
     extra = ("这份代码已经在本地通过该题的全部公开样例，请视为正确代码，"
              "correct 必须为 true，issues 留空，fixed_code 留空，讲解严格按这份代码写。"
-             if force_correct else "")
+             if force_correct else
+             "该题没有可用的公开样例，请只依据代码本身审查：只有出现确定的编译错误、"
+             "数组越界、变量未初始化、死循环、明显逻辑错误时才判 correct=false；"
+             "仅是写法风格、常数优化、内存偏大等建议不要判错，可写进 tips。")
     user = user.replace("<<EXTRA>>", extra)
     data = _json_chat(cfg, [{"role": "system", "content": SYSTEM},
                             {"role": "user", "content": user}])

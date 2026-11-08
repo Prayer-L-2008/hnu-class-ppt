@@ -11,7 +11,7 @@ from dataclasses import dataclass, field
 
 from .cg import CGClient, CGError, ProblemRef, guess_kind, parse_problem
 from .llm import LLMConfig, generate as llm_generate, summarize_deck
-from .model import Deck, Problem
+from .model import Case, Deck, Problem
 from .render import render_deck
 from .runner import compile_and_run
 
@@ -34,6 +34,7 @@ class ProblemSpec:
     problem_id: str = ""
     via: str = ""
     user_code: str = ""
+    oj: dict = field(default_factory=dict)
 
     @classmethod
     def from_dict(cls, d: dict) -> "ProblemSpec":
@@ -46,6 +47,7 @@ class ProblemSpec:
             problem_id=str(d.get("problem_id", "")),
             via=d.get("via", ""),
             user_code=str(d.get("user_code", "")),
+            oj=d.get("oj") or {},
         )
 
 
@@ -160,9 +162,26 @@ def build(job: BuildJob, client: CGClient, progress: Progress | None = None) -> 
         progress(f"[{i+1}/{total}] 抓取《{spec.title or spec.assignment or spec.index}》…",
                  0.05 + 0.9 * i / total)
         try:
-            html = client.problem_html(spec.assign_id, spec.index, spec.problem_id, spec.via)
-            meta = ProblemRef(index=spec.index, problem_id=spec.problem_id, title=spec.title)
-            p = parse_problem(html, spec.assign_id, spec.index, meta)
+            if spec.oj:
+                o = spec.oj
+                p = Problem(
+                    number=0,
+                    assignment=o.get("source", "外源题目"),
+                    ptype="编程题",
+                    title=o.get("title", ""),
+                    index=spec.index,
+                    problem_id=o.get("url", ""),
+                    url=o.get("url", ""),
+                    description=o.get("description", ""),
+                    input_form=o.get("input_form", ""),
+                    output_form=o.get("output_form", ""),
+                    samples=[Case(a, b) for a, b in o.get("samples", [])],
+                    tips=o.get("note", ""),
+                )
+            else:
+                html = client.problem_html(spec.assign_id, spec.index, spec.problem_id, spec.via)
+                meta = ProblemRef(index=spec.index, problem_id=spec.problem_id, title=spec.title)
+                p = parse_problem(html, spec.assign_id, spec.index, meta)
         except Exception as e:
             warnings.append(f"{spec.title or spec.index} 抓取失败：{e}")
             p = Problem(number=0, assignment=spec.assignment, ptype=spec.ptype or "编程题",
@@ -189,34 +208,59 @@ def build(job: BuildJob, client: CGClient, progress: Progress | None = None) -> 
             try:
                 used_user = False
                 if p.user_code and p.ptype == "编程题":
-                    if _samples_pass(p.user_code, p.samples, workdir):
-                        from .llm import generate_from_user_code
-                        res = generate_from_user_code(job.llm, p, p.user_code, force_correct=True)
-                        res.correct = True
-                        p.analysis = res.analysis
-                        p.code_pages = res.code_pages
-                        p.tips = res.tips
-                        if res.summary:
-                            summary_bits = res.summary
-                        if res.correct:
-                            p.code = p.user_code
-                            p.code_source = "user"
-                            p.code_note = "本页讲解依据我提交的代码"
-                            used_user = True
-                        else:
-                            issues = "；".join(res.issues[:2])
-                            if res.fixed_code and _samples_pass(res.fixed_code, p.samples, workdir):
-                                p.code = res.fixed_code
-                                p.code_source = "ai_fixed"
-                                p.code_note = "我提交的代码未完全正确" + (f"（{issues}）" if issues else "") + "，以下为修正版"
-                                used_user = True
-                            else:
-                                warnings.append(f"{p.title} 你提交的代码有问题：{issues or 'AI 判定不正确'}，已改用 AI 解法")
-                    else:
+                    has_samples = bool(p.samples)
+                    if has_samples and not _samples_pass(p.user_code, p.samples, workdir):
                         warnings.append(f"{p.title} 你提交的代码未通过样例，已改用 AI 解法")
                         p.code_note = "我提交的代码未通过样例，本页改用 AI 给出的解法"
+                    else:
+                        from .llm import generate_from_user_code
+                        if not has_samples:
+                            chk = compile_and_run(p.user_code, [], workdir=workdir)
+                            if not chk.ok:
+                                warnings.append(f"{p.title} 你提交的代码编译失败，已改用 AI 解法")
+                                p.code_note = "我提交的代码本地编译失败，本页改用 AI 解法"
+                                res = None
+                            else:
+                                res = generate_from_user_code(job.llm, p, p.user_code,
+                                                              force_correct=False)
+                        else:
+                            res = generate_from_user_code(job.llm, p, p.user_code,
+                                                          force_correct=True)
+                        if res is not None:
+                            if has_samples:
+                                res.correct = True
+                            p.analysis = res.analysis
+                            p.code_pages = res.code_pages
+                            p.tips = res.tips
+                            if res.summary:
+                                summary_bits = res.summary
+                            if res.correct:
+                                p.code = p.user_code
+                                p.code_source = "user"
+                                p.code_note = ("本页讲解依据我提交的代码" if has_samples
+                                               else "本页讲解依据我提交的代码（该站未提供样例，未做样例校验）")
+                                used_user = True
+                            else:
+                                issues = "；".join(res.issues[:2])
+                                fixed_ok = bool(res.fixed_code) and compile_and_run(
+                                    res.fixed_code, p.samples or [], workdir=workdir).ok
+                                if fixed_ok:
+                                    p.code = res.fixed_code
+                                    p.code_source = "ai_fixed"
+                                    p.code_note = ("我提交的代码未完全正确" +
+                                                   (f"（{issues}）" if issues else "") +
+                                                   "，以下为修正版" + ("（该站无样例，未做样例校验）" if not has_samples else ""))
+                                    used_user = True
+                                else:
+                                    p.code = p.user_code
+                                    p.code_source = "user"
+                                    p.code_note = ("AI 审查提示：" + (issues or "可能存在问题") +
+                                                   "；该站未提供样例，仍按我提交的代码讲解")
+                                    warnings.append(f"{p.title} AI 审查认为代码可能有问题：{issues or '未说明'}")
+                                    used_user = True
 
-                if not used_user and p.ptype == "编程题" and p.problem_id:
+                if (not used_user and p.ptype == "编程题" and p.problem_id
+                        and not spec.oj and spec.assign_id):
                     sub = None
                     try:
                         sub = client.submission(spec.assign_id, p.problem_id)

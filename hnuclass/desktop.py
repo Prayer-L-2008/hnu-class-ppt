@@ -7,7 +7,7 @@ import shutil
 import subprocess
 import threading
 import traceback
-from datetime import date
+from datetime import datetime
 
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
@@ -272,6 +272,7 @@ class App(tk.Tk):
         self.cb_assign = DarkCombo(row, width=30, on_change=self.load_problems)
         self.cb_assign.pack(side="left", padx=(6, 16))
         ttk.Button(row, text="重新加载", command=self.load_courses).pack(side="left")
+        ttk.Button(row, text="＋ 外源题目", command=self.add_oj_problem).pack(side="left", padx=(8, 0))
 
         body = tk.Frame(self.tab_pick, bg=BG2, highlightbackground=BG3, highlightthickness=1)
         body.pack(fill="both", expand=True, pady=(0, 10))
@@ -371,12 +372,8 @@ class App(tk.Tk):
         self.btn_ppt.pack(side="left", padx=8)
         self.btn_zip = ttk.Button(row, text="打开代码包", state="disabled", command=self.open_zip)
         self.btn_zip.pack(side="left")
-        self.btn_ppt_dir = ttk.Button(row, text="PPT 所在文件夹", state="disabled",
-                                      command=lambda: self.reveal(self.job_out))
-        self.btn_ppt_dir.pack(side="left", padx=(8, 0))
-        self.btn_zip_dir = ttk.Button(row, text="代码包所在文件夹", state="disabled",
-                                      command=lambda: self.reveal(self.code_zip))
-        self.btn_zip_dir.pack(side="left", padx=(8, 0))
+        self.btn_dir = ttk.Button(row, text="打开结果文件夹", command=self.open_out_dir)
+        self.btn_dir.pack(side="left", padx=(8, 0))
         self.pb = ttk.Progressbar(inner, variable=self.v_prog, maximum=1.0)
         self.pb.pack(fill="x", pady=(12, 8))
         self.log = tk.Text(inner, height=16, bg=BG, fg=FG, insertbackground=FG,
@@ -690,6 +687,66 @@ class App(tk.Tk):
 
         ttk.Button(win, text="确定", style="Accent.TButton", command=ok).pack(pady=16)
 
+    def add_oj_problem(self):
+        win = tk.Toplevel(self)
+        win.title("添加外源题目")
+        win.configure(bg=BG)
+        w, h = 640, 300
+        sw, sh = self.winfo_screenwidth(), self.winfo_screenheight()
+        win.geometry(f"{w}x{h}+{(sw - w) // 2}+{(sh - h) // 2}")
+        win.transient(self)
+        ttk.Label(win, text="粘贴题目网址（洛谷 / AtCoder / LeetCode / Codeforces 等）",
+                  style="H2.TLabel").pack(anchor="w", padx=18, pady=(18, 6))
+        entry = ttk.Entry(win, font=("Consolas", 10))
+        entry.pack(fill="x", padx=18)
+        entry.insert(0, "https://")
+        tip = tk.StringVar(value="抓取题面后按「编程题」加入已选题目，与 CG 题目一起生成。")
+        ttk.Label(win, textvariable=tip, style="Muted.TLabel", wraplength=w - 40).pack(anchor="w", padx=18, pady=8)
+        btns = tk.Frame(win, bg=BG)
+        btns.pack(fill="x", padx=18, pady=(4, 12))
+        go = ttk.Button(btns, text="抓取题面", style="Accent.TButton")
+        go.pack(side="right")
+        ttk.Button(btns, text="取消", command=win.destroy).pack(side="right", padx=8)
+
+        def start():
+            url = entry.get().strip()
+            if not url or url == "https://":
+                tip.set("请先填写题目网址")
+                return
+            go.configure(state="disabled")
+            tip.set("正在抓取，请稍候…")
+
+            def worker():
+                try:
+                    from .oj import fetch_problem
+                    data = fetch_problem(url)
+                    def done():
+                        self.picked.append({
+                            "uid": "oj|" + url, "assign_id": "", "assign_name": data["source"],
+                            "index": "OJ", "problem_id": url, "via": "oj",
+                            "kind": "编程题", "title": data["title"], "user_code": "",
+                            "oj": {
+                                "source": data["source"], "url": url, "title": data["title"],
+                                "description": data["description"], "input_form": data["input_form"],
+                                "output_form": data["output_form"],
+                                "samples": [[c.input, c.output] for c in data["samples"]],
+                                "note": data.get("note", ""),
+                            },
+                        })
+                        self._refresh_picked()
+                        win.destroy()
+                    self.after(0, done)
+                except Exception as e:  # noqa: BLE001
+                    msg = str(e)
+                    def fail():
+                        go.configure(state="normal")
+                        tip.set("抓取失败：" + msg)
+                    self.after(0, fail)
+
+            threading.Thread(target=worker, daemon=True).start()
+
+        go.configure(command=start)
+
     def _refresh_picked(self):
         self.tv_pick.delete(*self.tv_pick.get_children())
         for p in self.picked:
@@ -789,7 +846,12 @@ class App(tk.Tk):
             return
         out_dir = os.path.join(data_dir(), "out")
         os.makedirs(out_dir, exist_ok=True)
-        out = os.path.join(out_dir, f"小班课件_{date.today()}.pptx")
+        stem = "小班课件_" + datetime.now().strftime("%Y-%m-%d_%H%M%S")
+        out = os.path.join(out_dir, stem + ".pptx")
+        n = 2
+        while os.path.exists(out) or os.path.exists(os.path.splitext(out)[0] + "_代码.zip"):
+            out = os.path.join(out_dir, f"{stem}-{n}.pptx")
+            n += 1
         cfg = {
             "meta": {"session": self.v_session.get().strip(), "group": " ".join(
                 x for x in (self.v_zu.get().strip(), self.v_hao.get().strip()) if x),
@@ -804,12 +866,13 @@ class App(tk.Tk):
         for p, src in zip(cfg["problems"], self.picked):
             p["ptype"] = src["kind"]
             p["assignment"] = src["assign_name"]
+            if src.get("oj"):
+                p["oj"] = src["oj"]
         self.busy = True
         self.btn_build.configure(state="disabled")
         self.btn_ppt.configure(state="disabled")
         self.btn_zip.configure(state="disabled")
-        self.btn_ppt_dir.configure(state="disabled")
-        self.btn_zip_dir.configure(state="disabled")
+        self.btn_zip.configure(state="disabled")
         self.v_prog.set(0.0)
         self.log.delete("1.0", "end")
         self.nb.select(self.tab_gen)
@@ -835,10 +898,8 @@ class App(tk.Tk):
             self.after(0, lambda: self.v_prog.set(1.0))
             self.after(0, self.log.see, "end")
             self.after(0, lambda: self.btn_ppt.configure(state="normal"))
-            self.after(0, lambda: self.btn_ppt_dir.configure(state="normal"))
             if self.code_zip:
                 self.after(0, lambda: self.btn_zip.configure(state="normal"))
-                self.after(0, lambda: self.btn_zip_dir.configure(state="normal"))
         except Exception as e:  # noqa: BLE001
             tb = traceback.format_exc()
             msg = str(e)
@@ -851,6 +912,14 @@ class App(tk.Tk):
     def open_ppt(self):
         if self.job_out and os.path.exists(self.job_out):
             os.startfile(self.job_out)  # noqa: S606
+
+    def open_out_dir(self):
+        d = os.path.dirname(self.job_out) if self.job_out else os.path.join(data_dir(), "out")
+        os.makedirs(d, exist_ok=True)
+        try:
+            os.startfile(d)  # noqa: S606
+        except Exception as e:  # noqa: BLE001
+            messagebox.showerror("打开失败", str(e))
 
     def open_zip(self):
         if self.code_zip and os.path.exists(self.code_zip):
