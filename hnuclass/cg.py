@@ -500,6 +500,15 @@ def _main_node(doc):
 
 
 
+def frag_ratio(text: str) -> float:
+    """短行占比：用于判断题面是否被标签打散。"""
+    lines = [ln.strip() for ln in (text or "").splitlines() if ln.strip()]
+    if len(lines) < 6:
+        return 0.0
+    short = sum(1 for ln in lines if len(ln) <= 6)
+    return short / len(lines)
+
+
 _CODE_HINT = re.compile(r"[{};]|#\s*include|^\s{2,}|\b(int|long|double|char|bool|for|while|if|else|return|cin|cout|scanf|printf|vector|unordered_set)\b")
 
 

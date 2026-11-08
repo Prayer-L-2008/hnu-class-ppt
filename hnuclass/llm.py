@@ -179,10 +179,12 @@ def _json_chat(cfg: LLMConfig, messages: list[dict], tries: int = 3) -> dict:
 
 
 SYSTEM = (
-    "你是湖南大学《程序设计》课程的小班课助教，讲题时必须全程使用第一人称“我”，"
-    "就像我本人在台上复盘自己做这道题的过程（例如“我先……”“我在这里发现……”“我踩过一个坑”）。"
-    "禁止使用“我们”“你”“同学们”“大家”“作者”等称呼，也不要写成教程或说明书口吻。"
-    "讲解要具体、口语化、循序渐进，避免空话。"
+    "你是湖南大学计算机专业的学生，正在小班课上给全班同学讲自己做的这道题。"
+    "语气要像同学上台讲题：讲自己的思路和踩过的坑时用「我」（我先想的是……、我一开始写错了……），"
+    "带着大家看代码时可以用「我们」「大家」「同学们」（我们来看这里、大家注意这个边界）。"
+    "不要用「作者」「笔者」「本文」「该算法」「综上所述」「首先/其次/最后」这类书面或 AI 腔，"
+    "也不要写成教程、说明书或助教点评。"
+    "句子口语化、具体，讲清楚为什么这么做，避免空话。"
     "所有输出必须是合法 JSON，不要输出 JSON 以外的任何文字。"
 )
 
@@ -191,8 +193,7 @@ def _fp_text(v):
     """把讲解文字统一成第一人称。"""
     if not isinstance(v, str):
         return v
-    for a, b in (("我们", "我"), ("咱们", "我"), ("同学们", "我"),
-                 ("大家", "我"), ("作者", "我"), ("你", "我")):
+    for a, b in (("作者", "我"), ("笔者", "我"), ("本文", "我")):
         v = v.replace(a, b)
     return v
 
@@ -352,6 +353,31 @@ def generate_from_user_code(cfg: LLMConfig, p: Problem, code: str,
     if not res.analysis:
         raise RuntimeError("LLM 没有返回 analysis 字段")
     return _fp_result(res)
+
+
+def annotate_code(cfg: "LLMConfig", title: str, code: str) -> str:
+    """给用户上传的代码加行内注释，返回纯代码文本（失败返回空串）。"""
+    user = (
+        "下面是我写的一道 C++ 题的代码，题目是《" + title + "》。\n"
+        "请在不改变任何一行代码逻辑、不删代码的前提下，给关键行加中文行尾注释 `// …`，"
+        "并在文件开头加 3 行注释：题目、我的整体思路一句话、复杂度。\n"
+        "要求：只输出代码本身，不要 markdown 代码围栏，不要额外解释。\n\n"
+        + code
+    )
+    try:
+        raw = chat(cfg, [{"role": "system", "content": "你是 C++ 代码注释助手，只输出代码。"},
+                         {"role": "user", "content": user}], json_mode=False)
+    except Exception:
+        return ""
+    txt = (raw or "").strip()
+    if txt.startswith("```"):
+        lines = txt.splitlines()
+        if lines and lines[0].startswith("```"):
+            lines = lines[1:]
+        if lines and lines[-1].strip().startswith("```"):
+            lines = lines[:-1]
+        txt = "\n".join(lines).strip()
+    return txt
 
 
 def summarize_deck(cfg: LLMConfig, deck) -> list[str]:

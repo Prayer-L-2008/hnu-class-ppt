@@ -9,8 +9,8 @@ import urllib.parse
 import urllib.request
 from dataclasses import dataclass, field
 
-from .cg import CGClient, CGError, ProblemRef, guess_kind, parse_problem
-from .llm import LLMConfig, generate as llm_generate, summarize_deck
+from .cg import CGClient, CGError, ProblemRef, frag_ratio, guess_kind, parse_problem
+from .llm import LLMConfig, annotate_code, generate as llm_generate, summarize_deck
 from .model import Case, Deck, Problem
 from .render import render_deck
 from .runner import compile_and_run
@@ -116,13 +116,10 @@ def _samples_pass(code: str, samples, workdir: str | None = None) -> bool:
 
 
 
-def _write_code_zip(deck: Deck, out_path: str) -> str:
+def _write_code_zip(deck: Deck, out_path: str, llm_cfg: LLMConfig | None = None) -> str:
     """把 PPT 里编程题的 C++ 代码打包，放在 PPTX 旁边。"""
     progs = [p for p in deck.problems if p.ptype == "编程题" and (p.code or "").strip()]
     if not progs:
-        return ""
-    # 只有存在“未上传代码 / 审查未通过改用 AI 解法”的编程题时才需要代码包
-    if all((p.code_source or "") == "user" for p in progs):
         return ""
     path = os.path.splitext(out_path)[0] + "_代码.zip"
     used = set()
@@ -135,7 +132,14 @@ def _write_code_zip(deck: Deck, out_path: str) -> str:
                 while name in used:
                     name = f"{base}({i}).cpp"; i += 1
                 used.add(name)
-                z.writestr(name, p.code)
+                src = "我上传的代码" if (p.code_source or "") == "user" else "AI 生成/修正的参考解法"
+                head = f"// {p.number}. {p.title}\n// 来源：{src}\n"
+                body = p.code
+                if (p.code_source or "") == "user" and llm_cfg is not None and getattr(llm_cfg, "ready", False):
+                    ann = annotate_code(llm_cfg, p.title, p.code)
+                    if ann and len(ann) > 20:
+                        body = ann
+                z.writestr(name, head + "\n" + body)
     except Exception:
         return ""
     return path
@@ -189,6 +193,8 @@ def build(job: BuildJob, client: CGClient, progress: Progress | None = None) -> 
                         problem_id=spec.problem_id,
                         description=f"（抓取失败：{e}）")
         p.assignment = spec.assignment or p.assignment
+        if frag_ratio(p.description) > 0.4:
+            warnings.append(f"{p.title} 题面短行占比偏高，已尝试重排，建议生成后检查")
         p.ptype = spec.ptype or p.ptype or guess_kind(p.title, p.assignment)
         p.title = p.title or spec.title
 
@@ -339,7 +345,7 @@ def build(job: BuildJob, client: CGClient, progress: Progress | None = None) -> 
 
     progress("渲染 PPTX…", 0.97)
     render_deck(deck, job.out, job.template)
-    _write_code_zip(deck, job.out)
+    _write_code_zip(deck, job.out, job.llm)
     try:
         from .layoutcheck import audit
         layout_issues = audit(job.out, fix=True)
