@@ -186,7 +186,25 @@ def fetch_leetcode(html: str):
     txt = _html_text(body)
     # “示例 N：”与紧随其后的输入/输出/解释保持在同一段，避免翻页时被拆散
     txt = re.sub(r"(示例\s*\d+\s*[:：])\s*\n+\s*", r"\1\n", txt)
-    return dict(title=title, description=txt, input_form="", output_form="", samples=[])
+    # 从“示例 N：输入：… 输出：…”里抽样例，优先用官方例子而不是让 AI 编
+    samples = []
+    cur = {}
+    for line in txt.splitlines():
+        t = line.strip()
+        if re.match(r"^示例\s*\d+\s*[:：]?\s*$", t):
+            cur = {}
+            continue
+        m = re.match(r"^输入\s*[：:]\s*(.+)$", t)
+        if m:
+            cur = {"input": m.group(1).strip()}
+            continue
+        m = re.match(r"^输出\s*[：:]\s*(.+)$", t)
+        if m and cur.get("input") and not cur.get("output"):
+            cur["output"] = m.group(1).strip()
+            samples.append(cur)
+            cur = {}
+    return dict(title=title, description=txt, input_form="", output_form="",
+                samples=[Case(a["input"], a["output"]) for a in samples])
 
 
 def fetch_codeforces(html: str):

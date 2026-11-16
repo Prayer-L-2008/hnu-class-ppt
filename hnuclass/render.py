@@ -477,6 +477,7 @@ class Renderer:
             CodePage(heading="", bullets=["（代码逐行讲解待补充：配置 LLM API 后将自动生成。）"])
         ]
         multi = len(pages) > 1
+        last_slide = None
         for idx, cp in enumerate(pages):
             s = self.new_slide()
             suffix = f" (P{idx+1})" if multi else ""
@@ -502,13 +503,36 @@ class Renderer:
             size = self._pick_size(blocks, width, height, (18, 17, 16, 15, 14))
             pages_split = self._paginate(blocks, width, height, size)
             # 讲解页一般一页装得下；若超长，追加同标题页面
+            last_slide = s
             for k, page in enumerate(pages_split):
                 if k == 0:
                     self.add_body(s, page, 1.53, top, width, size, height)
+                    last_slide = s
                 else:
                     s2 = self.new_slide()
                     self.add_title(s2, f"{p.number}-代码逐行讲解{suffix}")
                     self.add_body(s2, page, 1.53, top, width, size, height)
+                    last_slide = s2
+        if p.code_file and last_slide is not None:
+            self._code_footer(last_slide, p.code_file)
+
+    def _code_footer(self, s, filename: str) -> None:
+        """代码讲解最后一页底部的小字备注（透明文本框）。"""
+        box = s.shapes.add_textbox(Inches(0.62), Inches(6.98), Inches(8.6), Inches(0.28))
+        tf = box.text_frame
+        tf.word_wrap = True
+        tf.margin_left = 0
+        tf.margin_right = 0
+        tf.margin_top = 0
+        tf.margin_bottom = 0
+        para = tf.paragraphs[0]
+        run = para.add_run()
+        run.text = f"源代码见 {filename}"
+        f = run.font
+        f.size = Pt(9)
+        f.name = "微软雅黑"
+        f.color.rgb = RGBColor(0xD5, 0xE6, 0xDF)
+        para.alignment = PP_ALIGN.LEFT
 
     def case_page(self, p: Problem) -> None:
         s = self.new_slide()

@@ -355,6 +355,64 @@ def generate_from_user_code(cfg: LLMConfig, p: Problem, code: str,
     return _fp_result(res)
 
 
+def _looks_special(text: str, ref: str = "") -> bool:
+    """相对已有样例判断一组用例是否过于极端/特殊。"""
+    t = (text or "").strip()
+    if not t:
+        return True
+    nums = re.findall(r"-?\d+", t)
+    if any(len(x.lstrip("-")) >= 9 for x in nums):
+        return True
+    ref_toks = (ref or "").split()
+    toks = t.split()
+    if len(toks) == 1 and len(ref_toks) > 1:
+        return True
+    ref_nums = re.findall(r"-?\d+", ref or "")
+    if len(nums) >= 4 and len(set(nums)) == 1 and len(set(ref_nums)) > 1:
+        return True
+    if nums and all(x in ("0", "1", "-1") for x in nums) and any(x not in ("0", "1", "-1") for x in ref_nums):
+        return True
+    return False
+
+
+def make_case(cfg: "LLMConfig", p) -> dict:
+    """让 AI 补一组普通、小规模的测试用例，返回 {"input","output"}。"""
+    bits = [f"题目：{p.title}"]
+    if getattr(p, "input_form", ""):
+        bits.append("输入形式：" + p.input_form[:600])
+    if getattr(p, "output_form", ""):
+        bits.append("输出形式：" + p.output_form[:600])
+    if getattr(p, "description", ""):
+        bits.append("题面：" + p.description[:1600])
+    if getattr(p, "samples", None):
+        a = p.samples[0]
+        bits.append("已有样例输入：\n" + a.input[:600] + "\n已有样例输出：\n" + a.output[:300])
+    base = "\n\n".join(bits)
+    ask = (
+        "\n\n请再补一组测试用例，要求：\n"
+        "- 普通、常见、规模偏小但不要极端：不要只有 1 个元素、不要全 0/全相同、不要 10^9 这种大数；\n"
+        "- 尽量和已有样例同一量级、同一格式；\n"
+        "- 标准输入题写完整 stdin 文本；函数式题（如 LeetCode）input 写函数参数、output 写返回值；\n"
+        '- 只输出 JSON：{"input": "...", "output": "..."}'
+    )
+    for attempt in range(2):
+        user = base + ask
+        if attempt:
+            user += "\n注意：上一组过于特殊或格式不对，请换一组更普通、更接近样例风格的。"
+        try:
+            data = _json_chat(cfg, [{"role": "system", "content": "你是算法题出题人，只输出合法 JSON。"},
+                                    {"role": "user", "content": user}])
+        except Exception:
+            continue
+        if not isinstance(data, dict):
+            continue
+        inp = str(data.get("input", "")).strip()
+        ref = p.samples[0].input if getattr(p, "samples", None) else ""
+        if inp and not _looks_special(inp, ref):
+            return {"input": inp, "output": str(data.get("output", "")).strip()}
+    return {}
+
+
 def annotate_code(cfg: "LLMConfig", title: str, code: str) -> str:
     """给用户上传的代码加行内注释，返回纯代码文本（失败返回空串）。"""
     user = (

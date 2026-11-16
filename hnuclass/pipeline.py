@@ -10,7 +10,8 @@ import urllib.request
 from dataclasses import dataclass, field
 
 from .cg import CGClient, CGError, ProblemRef, frag_ratio, guess_kind, parse_problem
-from .llm import LLMConfig, annotate_code, generate as llm_generate, summarize_deck
+from .llm import (LLMConfig, annotate_code, generate as llm_generate,
+                  make_case, summarize_deck)
 from .model import Case, Deck, Problem
 from .render import render_deck
 from .runner import compile_and_run
@@ -34,6 +35,7 @@ class ProblemSpec:
     problem_id: str = ""
     via: str = ""
     user_code: str = ""
+    user_filename: str = ""
     oj: dict = field(default_factory=dict)
 
     @classmethod
@@ -47,6 +49,7 @@ class ProblemSpec:
             problem_id=str(d.get("problem_id", "")),
             via=d.get("via", ""),
             user_code=str(d.get("user_code", "")),
+            user_filename=str(d.get("user_filename", "")),
             oj=d.get("oj") or {},
         )
 
@@ -116,6 +119,39 @@ def _samples_pass(code: str, samples, workdir: str | None = None) -> bool:
 
 
 
+def _entry_name(p: Problem) -> str:
+    base = re.sub(r'[\\/:*?"<>|\r\n]+', "_", f"{p.number}. {p.title}").strip()[:60]
+    return base + ".cpp"
+
+
+def _ensure_two_cases(cfg: LLMConfig, p: Problem, workdir: str,
+                      warnings: list[str]) -> None:
+    """保证每道题至少两组用例；不足时让 AI 补普通的小用例。"""
+    if not getattr(cfg, "ready", False):
+        return
+    for _ in range(2):
+        if len(p.samples) >= 2:
+            break
+        try:
+            extra = make_case(cfg, p)
+        except Exception as e:  # noqa: BLE001
+            warnings.append(f"{p.title} 自动补用例失败：{e}")
+            break
+        inp = (extra.get("input") or "").strip()
+        if not inp:
+            continue
+        out = (extra.get("output") or "").strip()
+        if p.code:
+            run = compile_and_run(p.code, [Case(inp, "")], workdir=workdir)
+            if run.ok and run.outputs:
+                out = run.outputs[0]
+        if not out:
+            continue
+        p.samples.append(Case(inp, out))
+    if len(p.samples) < 2:
+        warnings.append(f"{p.title} 只有 {len(p.samples)} 组用例，AI 未能补出合适的用例，请手动检查")
+
+
 def _write_code_zip(deck: Deck, out_path: str, llm_cfg: LLMConfig | None = None) -> str:
     """把 PPT 里编程题的 C++ 代码打包，放在 PPTX 旁边。"""
     progs = [p for p in deck.problems if p.ptype == "编程题" and (p.code or "").strip()]
@@ -126,8 +162,8 @@ def _write_code_zip(deck: Deck, out_path: str, llm_cfg: LLMConfig | None = None)
     try:
         with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as z:
             for p in progs:
-                base = re.sub(r'[\\/:*?"<>|\r\n]+', "_", f"{p.number}. {p.title}").strip()[:60]
-                name = base + ".cpp"
+                base = os.path.splitext(_entry_name(p))[0]
+                name = _entry_name(p)
                 i = 2
                 while name in used:
                     name = f"{base}({i}).cpp"; i += 1
@@ -166,8 +202,31 @@ def build(job: BuildJob, client: CGClient, progress: Progress | None = None) -> 
         progress(f"[{i+1}/{total}] 抓取《{spec.title or spec.assignment or spec.index}》…",
                  0.05 + 0.9 * i / total)
         try:
+            cg_ok = False
             if spec.oj:
-                o = spec.oj
+                o = dict(spec.oj)
+                if job.llm.ready and ("力扣" in str(o.get("source", "")) or
+                                      "LeetCode" in str(o.get("source", ""))):
+                    try:
+                        prog = f"[{i+1}/{total}] 把力扣题转写成 CG 输入输出…"
+                        progress(prog, 0.05 + 0.9 * i / total)
+                        from .oj_cg import convert as convert_oj
+                        cg = convert_oj(job.llm, o, spec.user_code or "", workdir)
+                        if cg.input_format:
+                            o["input_form"] = cg.input_format
+                        if cg.output_format:
+                            o["output_form"] = cg.output_format
+                        if cg.samples:
+                            o["samples"] = [[c.input, c.output] for c in cg.samples]
+                        desc = str(o.get("description") or "")
+                        cut = re.search(r"\n\s*示例\s*1\s*[:：]", desc)
+                        if cut:
+                            o["description"] = desc[:cut.start()].rstrip()
+                        cg_ok = cg.user_ok
+                        if cg.note:
+                            o["note"] = (o.get("note", "") + " " + cg.note).strip()
+                    except Exception as e:
+                        warnings.append(f"{o.get('title', '')} 力扣→CG 转写失败：{e}")
                 p = Problem(
                     number=0,
                     assignment=o.get("source", "外源题目"),
@@ -215,10 +274,27 @@ def build(job: BuildJob, client: CGClient, progress: Progress | None = None) -> 
                 used_user = False
                 if p.user_code and p.ptype == "编程题":
                     has_samples = bool(p.samples)
-                    if has_samples and not _samples_pass(p.user_code, p.samples, workdir):
+                    cg_done = False
+                    if cg_ok:
+                        from .llm import generate_from_user_code
+                        res = generate_from_user_code(job.llm, p, p.user_code,
+                                                      force_correct=True)
+                        res.correct = True
+                        p.analysis = res.analysis
+                        p.code_pages = res.code_pages
+                        p.tips = res.tips
+                        if res.summary:
+                            summary_bits = res.summary
+                        p.code = p.user_code
+                        p.code_source = "user"
+                        p.code_note = "本页讲解依据我提交的代码（已用 CG 转写用例校验）"
+                        used_user = True
+                        has_samples = False
+                        cg_done = True
+                    if (not cg_done) and has_samples and not _samples_pass(p.user_code, p.samples, workdir):
                         warnings.append(f"{p.title} 你提交的代码未通过样例，已改用 AI 解法")
                         p.code_note = "我提交的代码未通过样例，本页改用 AI 给出的解法"
-                    else:
+                    elif not cg_done:
                         from .llm import generate_from_user_code
                         if not has_samples:
                             chk = compile_and_run(p.user_code, [], workdir=workdir)
@@ -319,6 +395,13 @@ def build(job: BuildJob, client: CGClient, progress: Progress | None = None) -> 
                         p.run_output = run.outputs[0] if run.outputs else ""
                     elif run.stderr:
                         warnings.append(f"{p.title} 参考代码运行失败：{run.stderr.splitlines()[0][:120]}")
+                if p.code:
+                    if (p.code_source or "") == "user" and spec.user_filename:
+                        p.code_file = os.path.basename(spec.user_filename)
+                    else:
+                        p.code_file = _entry_name(p)
+                if p.ptype in ("编程题", "程序补全", "接口编程题"):
+                    _ensure_two_cases(job.llm, p, workdir, warnings)
                 if p.code_note and p.code_pages:
                     p.code_pages[0].note = p.code_note
             except Exception as e:

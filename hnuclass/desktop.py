@@ -859,7 +859,7 @@ class App(tk.Tk):
                 "student_id": self.v_sid.get().strip()},
             "llm": {"base_url": self.v_base.get().strip(), "api_key": self.v_key.get().strip(),
                     "model": self.cb_model.get().strip()},
-            "problems": [{k: p.get(k, "") for k in ("assign_id", "index", "problem_id", "via", "kind", "title", "user_code")}
+            "problems": [{k: p.get(k, "") for k in ("assign_id", "index", "problem_id", "via", "kind", "title", "user_code", "user_filename")}
                          for p in self.picked],
             "out": out, "template": TEMPLATE, "run_code": True,
         }
@@ -939,6 +939,7 @@ class CodeDialog(tk.Toplevel):
         self.problem = problem
         self.on_ok = on_ok
         self.orig = (problem.get("user_code") or "").strip()
+        self.filename = problem.get("user_filename") or ""
         self.title(f"上传代码 · {problem['title']}")
         sw, sh = self.winfo_screenwidth(), self.winfo_screenheight()
         w, h = min(820, sw - 80), min(620, sh - 100)
@@ -1005,7 +1006,8 @@ class CodeDialog(tk.Toplevel):
                     content = f.read()
                 self.text.delete("1.0", "end")
                 self.text.insert("1.0", content)
-                self.status.set(f"已载入 {os.path.basename(path)}（点「确认上传」保存）")
+                self.filename = os.path.basename(path)
+                self.status.set(f"已载入 {self.filename}（点「确认上传」保存）")
                 return
             except Exception:  # noqa: BLE001
                 continue
@@ -1017,6 +1019,7 @@ class CodeDialog(tk.Toplevel):
             if not messagebox.askyesno("清空代码", "代码内容为空，确定清空已保存的代码？"):
                 return
         self.problem["user_code"] = code
+        self.problem["user_filename"] = self.filename if code else ""
         self.on_ok()
         self.destroy()
 

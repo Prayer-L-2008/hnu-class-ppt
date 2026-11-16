@@ -64,6 +64,7 @@ class Problem:
     user_code: str = ""                # 学生自己上传的代码（可选）
     code_source: str = ""              # user / ai / ai_fixed
     code_note: str = ""                # 代码页上的来源说明
+    code_file: str = ""                # 代码包里的文件名（用于页脚“源代码见 …”）
 
     # ---------- 便捷属性 ----------
     @property
@@ -103,6 +104,7 @@ class Problem:
             "user_code": self.user_code,
             "code_source": self.code_source,
             "code_note": self.code_note,
+            "code_file": self.code_file,
         }
 
     @classmethod
@@ -128,6 +130,7 @@ class Problem:
             user_code=str(d.get("user_code", "")),
             code_source=str(d.get("code_source", "")),
             code_note=str(d.get("code_note", "")),
+            code_file=str(d.get("code_file", "")),
         )
 
 
