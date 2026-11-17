@@ -40,6 +40,8 @@ button.mini{padding:4px 9px;font-size:12px;background:transparent;border:1px sol
   color:#cfded9;border-radius:6px;cursor:pointer;white-space:nowrap}
 button.mini:hover{border-color:#B01513;color:#fff}
 table{width:100%;border-collapse:collapse;margin-top:12px;font-size:14px}
+.inline-check{display:inline-flex;align-items:center;gap:6px;margin-left:12px;font-size:13px;color:#cfe6df;vertical-align:middle}
+.inline-check input{accent-color:#B01513}
 #tbl td,#tbl th{vertical-align:top}
 #tbl td{padding-top:14px;padding-bottom:14px}
 th,td{text-align:left;padding:9px 8px;border-bottom:1px solid var(--line)}
@@ -185,6 +187,7 @@ button.exp:hover{background:rgba(230,183,41,.12)}
     <h2><span class="num">5</span>生成</h2>
     <div class="row">
       <button id="btnBuild">开始生成课件</button>
+      <label class="inline-check"><input type="checkbox" id="codeComments" checked> 代码包里的代码添加注释</label>
       <a class="dl hidden" id="download" href="/download">下载 PPTX</a>
       <a class="dl ghost hidden" id="dlCode" href="/download?code=1">下载代码包</a>
     </div>
@@ -522,7 +525,8 @@ $('btnBuild').onclick = async () => {
       index:p.index, title:p.title, ptype:p.kind, problem_id:p.problem_id||'', via:p.via||'',
       user_code:(p.kind==='编程题'?(p.user_code||''):'')})),
     out: 'out/小班课件_' + new Date().toISOString().slice(0,10) + '.pptx',
-    run_code: true
+    run_code: true,
+    code_comments: !!$('codeComments').checked
   };
   $('download').classList.add('hidden');
   $('dlCode').classList.add('hidden');

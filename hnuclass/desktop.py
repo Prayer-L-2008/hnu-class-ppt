@@ -202,6 +202,7 @@ class App(tk.Tk):
         self.v_model = tk.StringVar(value="deepseek-chat")
         self.v_hint = tk.StringVar(value="")
         self.v_prog = tk.DoubleVar(value=0.0)
+        self.v_comments = tk.BooleanVar(value=True)
         for v in (self.v_session, self.v_zu, self.v_hao, self.v_klass, self.v_name, self.v_sid):
             v.trace_add("write", lambda *_: self._refresh_cover())
 
@@ -374,6 +375,12 @@ class App(tk.Tk):
         self.btn_zip.pack(side="left")
         self.btn_dir = ttk.Button(row, text="打开结果文件夹", command=self.open_out_dir)
         self.btn_dir.pack(side="left", padx=(8, 0))
+        tk.Checkbutton(inner, text="代码包里的代码添加注释（保留原代码逻辑，只加中文行内注释）",
+                       variable=self.v_comments, bg=BG2, fg=FG,
+                       activebackground=BG2, activeforeground=GOLD,
+                       selectcolor=BG3, highlightthickness=0, bd=0,
+                       font=("Microsoft YaHei UI", 10), anchor="w",
+                       padx=2).pack(anchor="w", pady=(2, 8))
         self.pb = ttk.Progressbar(inner, variable=self.v_prog, maximum=1.0)
         self.pb.pack(fill="x", pady=(12, 8))
         self.log = tk.Text(inner, height=16, bg=BG, fg=FG, insertbackground=FG,
@@ -862,6 +869,7 @@ class App(tk.Tk):
             "problems": [{k: p.get(k, "") for k in ("assign_id", "index", "problem_id", "via", "kind", "title", "user_code", "user_filename")}
                          for p in self.picked],
             "out": out, "template": TEMPLATE, "run_code": True,
+            "code_comments": bool(self.v_comments.get()),
         }
         for p, src in zip(cfg["problems"], self.picked):
             p["ptype"] = src["kind"]

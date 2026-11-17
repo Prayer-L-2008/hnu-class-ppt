@@ -63,6 +63,7 @@ class BuildJob:
     out: str
     run_code: bool = True
     workdir: str = ""
+    code_comments: bool = True
 
     @classmethod
     def from_dict(cls, d: dict, base_dir: str = ".") -> "BuildJob":
@@ -79,6 +80,7 @@ class BuildJob:
             out=out if os.path.isabs(out) else os.path.join(base_dir, out),
             run_code=bool(d.get("run_code", True)),
             workdir=d.get("workdir") or "",
+            code_comments=bool(d.get("code_comments", True)),
         )
 
 
@@ -152,7 +154,8 @@ def _ensure_two_cases(cfg: LLMConfig, p: Problem, workdir: str,
         warnings.append(f"{p.title} 只有 {len(p.samples)} 组用例，AI 未能补出合适的用例，请手动检查")
 
 
-def _write_code_zip(deck: Deck, out_path: str, llm_cfg: LLMConfig | None = None) -> str:
+def _write_code_zip(deck: Deck, out_path: str, llm_cfg: LLMConfig | None = None,
+                    annotate: bool = True) -> str:
     """把 PPT 里编程题的 C++ 代码打包，放在 PPTX 旁边。"""
     progs = [p for p in deck.problems if p.ptype == "编程题" and (p.code or "").strip()]
     if not progs:
@@ -169,8 +172,11 @@ def _write_code_zip(deck: Deck, out_path: str, llm_cfg: LLMConfig | None = None)
                     name = f"{base}({i}).cpp"; i += 1
                 used.add(name)
                 src = "我上传的代码" if (p.code_source or "") == "user" else "AI 生成/修正的参考解法"
-                head = f"// {p.number}. {p.title}\n// 来源：{src}\n"
                 body = p.code
+                if not annotate:
+                    z.writestr(name, body)
+                    continue
+                head = f"// {p.number}. {p.title}\n// 来源：{src}\n"
                 if (p.code_source or "") == "user" and llm_cfg is not None and getattr(llm_cfg, "ready", False):
                     ann = annotate_code(llm_cfg, p.title, p.code)
                     if ann and len(ann) > 20:
@@ -428,7 +434,7 @@ def build(job: BuildJob, client: CGClient, progress: Progress | None = None) -> 
 
     progress("渲染 PPTX…", 0.97)
     render_deck(deck, job.out, job.template)
-    _write_code_zip(deck, job.out, job.llm)
+    _write_code_zip(deck, job.out, job.llm, annotate=job.code_comments)
     try:
         from .layoutcheck import audit
         layout_issues = audit(job.out, fix=True)
